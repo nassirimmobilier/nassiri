@@ -22,7 +22,8 @@ var ONGLETS = {
   BIENS: ['id', 'statut', 'titre', 'type', 'ville', 'quartier', 'prix', 'surface', 'terrain', 'chambres', 'sdb',
     'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une',
     'date_creation', 'date_publication', 'date_maj', 'vues', 'adresse_privee', 'notes_privees',
-    'transaction', 'prix_sur_demande', 'coup_de_coeur'],
+    'transaction', 'prix_sur_demande', 'coup_de_coeur',
+    'agent_id', 'commission', 'commission_statut', 'motif_refus', 'commentaire_refus'],
   PHOTOS: ['id', 'bien_id', 'url', 'drive_id', 'ordre'],
   PROSPECTS: ['id', 'date_creation', 'nom', 'telephone', 'email', 'budget', 'type_recherche', 'ville_recherche',
     'statut', 'notes', 'date_relance', 'source', 'date_maj'],
@@ -32,13 +33,19 @@ var ONGLETS = {
     'commentaires', 'photos', 'statut'],
   FAVORIS: ['date', 'bien_id', 'action'],
   ALERTES: ['id', 'date', 'type', 'prospect_id', 'bien_id', 'resume', 'lu', 'email_envoye'],
-  PARAMETRES: ['cle', 'valeur']
+  PARAMETRES: ['cle', 'valeur'],
+  AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation'],
+  MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre']
 };
-var STATUTS_BIEN = ['brouillon', 'publie', 'sous-offre', 'vendu', 'archive'];
+/* en_attente : soumis par un agent, attend la validation du staff. refuse : renvoyé à l'agent avec motif. */
+var STATUTS_BIEN = ['brouillon', 'en_attente', 'publie', 'sous-offre', 'vendu', 'archive', 'refuse'];
+/* Statuts qu'un agent peut choisir lui-même : jamais publié directement sans validation du staff. */
+var STATUTS_BIEN_AGENT = ['brouillon', 'en_attente'];
 var TRANSACTIONS_BIEN = ['vente', 'location-longue', 'location-courte'];
 var STATUTS_PROSPECT = ['Nouveau', 'Contacté', 'Qualifié', 'Visite', 'Offre', 'Vente'];
 var STATUTS_VISITE = ['À confirmer', 'Confirmée', 'Effectuée', 'Annulée'];
 var STATUTS_PROPOSITION = ['Nouveau', 'À l’étude', 'Accepté', 'Refusé'];
+var STATUTS_COMMISSION = ['à verser', 'versée'];
 var PARAMETRES_PUBLICS = ['whatsapp', 'telephone', 'email_contact'];
 var PARAMETRES_MODIFIABLES = ['email_alertes', 'whatsapp', 'telephone', 'email_contact'];
 /* Champs d'un bien visibles du public (jamais adresse_privee ni notes_privees) */
@@ -87,6 +94,10 @@ function installer_() {
   PARAMETRES_MODIFIABLES.forEach(function (cle) {
     if (existants.indexOf(cle) === -1) feuille_('PARAMETRES').appendRow([cle, '']);
   });
+  if (!lire_('MOTIFS_REFUS').length) {
+    ['Photos insuffisantes ou de mauvaise qualité', 'Informations incomplètes (prix, surface, description)', 'Situation juridique à clarifier']
+      .forEach(function (libelle, i) { ajouter_('MOTIFS_REFUS', { id: identifiant_('MR'), libelle: libelle, actif: 'oui', ordre: String(i + 1) }); });
+  }
 }
 
 /* ============================== ENTRÉES HTTP ============================== */
@@ -103,6 +114,7 @@ function doPost(e) {
     var action = String(d.action || '');
     if (PUBLIQUES[action]) return PUBLIQUES[action](d);
     if (ADMIN[action]) { exigerSession_(d.jeton); return verrou_(function () { return ADMIN[action](d); }); }
+    if (AGENT[action]) { var agentId = exigerSessionAgent_(d.jeton); return verrou_(function () { return AGENT[action](d, agentId); }); }
     throw erreur_('Action inconnue.', 'ACTION');
   }));
 }
@@ -209,6 +221,38 @@ function exigerSession_(jeton) {
   cache.put(cle, '1', DUREE_SESSION);   // prolonge la session à chaque action
 }
 
+/* ============================== AUTHENTIFICATION DES AGENTS ============================== */
+
+function trouverAgentParEmail_(email) {
+  email = String(email || '').toLowerCase();
+  var l = lire_('AGENTS');
+  for (var i = 0; i < l.length; i++) if (l[i].email.toLowerCase() === email) return l[i];
+  return null;
+}
+function connexionAgent_(d) {
+  var cache = CacheService.getScriptCache(), cleEchecs = 'echecs_agent_' + String(d.email || '').toLowerCase().slice(0, 120);
+  var echecs = parseInt(cache.get(cleEchecs) || '0', 10);
+  if (echecs >= MAX_ECHECS) throw erreur_('Trop de tentatives. Réessayez dans 15 minutes.', 'BLOQUE');
+  var a = trouverAgentParEmail_(d.email);
+  if (!a || a.actif !== 'oui' || !a.sel || !a.hachage || hacher_(String(d.motDePasse || ''), a.sel) !== a.hachage) {
+    cache.put(cleEchecs, String(echecs + 1), BLOCAGE);
+    throw erreur_('E-mail ou mot de passe incorrect.', 'AUTH');
+  }
+  cache.remove(cleEchecs);
+  var jeton = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  cache.put('session_agent_' + jeton, a.id, DUREE_SESSION);
+  return { jeton: jeton, duree: DUREE_SESSION, agent: { id: a.id, nom: a.nom, email: a.email } };
+}
+function exigerSessionAgent_(jeton) {
+  var cache = CacheService.getScriptCache(), cle = 'session_agent_' + String(jeton || '');
+  var agentId = jeton && String(jeton).length >= 40 ? cache.get(cle) : null;
+  if (!agentId) throw erreur_('Session expirée. Reconnectez-vous.', 'AUTH');
+  cache.put(cle, agentId, DUREE_SESSION);
+  var a = trouver_('AGENTS', agentId);
+  if (!a || a.actif !== 'oui') throw erreur_('Accès désactivé. Contactez l’agence.', 'AUTH');
+  return agentId;
+}
+
 /* ============================== PARTIE PUBLIQUE ============================== */
 
 function photosPar_() {
@@ -290,6 +334,9 @@ function demande_(type, d) {
         envoye = 'oui';
       } catch (err) { envoye = 'non'; }
     }
+    /* L'agent qui a apporté ce bien est notifié en plus de l'administrateur (jamais à sa place). */
+    notifierAgentDeBien_(bien, LIBELLES[type] + ' sur votre bien', LIBELLES[type] + ' pour votre bien « ' + (bien ? bien.titre : '') + ' » (Réf. ' + bienId + ').\n\n' +
+      'Nom : ' + p.nom + '\nTéléphone : ' + p.telephone + '\nE-mail : ' + p.email + '\n\n' + resume);
     ajouter_('ALERTES', { id: identifiant_('A'), date: maintenant_(), type: type, prospect_id: p.id, bien_id: bienId,
       resume: resume, lu: 'non', email_envoye: envoye });
     return {};
@@ -299,6 +346,7 @@ function demande_(type, d) {
 var PUBLIQUES = {
   catalogue: function () { return catalogue_(); },
   connexion: function (d) { return connexion_(d); },
+  connexionAgent: function (d) { return connexionAgent_(d); },
   contact: function (d) { return demande_('contact', d); },
   visite: function (d) { return demande_('visite', d); },
   confier: function (d) { return demande_('confier', d); },
@@ -342,14 +390,25 @@ function jeterPhoto_(driveId) { if (driveId) { try { DriveApp.getFileById(driveI
 
 /* ============================== ADMINISTRATION ============================== */
 
-function bienDepuis_(d) {
+/* estAgent : restreint les champs qu'un agent peut renseigner lui-même (jamais la commission, jamais publié directement). */
+function bienDepuis_(d, estAgent) {
   var b = {};
   ['titre', 'type', 'ville', 'quartier', 'description', 'juridique', 'adresse_privee', 'notes_privees'].forEach(function (k) { if (d[k] !== undefined) b[k] = propre_(d[k], 6000); });
   ['prix', 'surface', 'terrain', 'chambres', 'sdb'].forEach(function (k) { if (d[k] !== undefined) b[k] = nombre_(d[k]); });
-  ['juridique_verifie', 'exclusivite', 'a_la_une', 'prix_sur_demande', 'coup_de_coeur'].forEach(function (k) { if (d[k] !== undefined) b[k] = oui_(d[k]); });
+  var bascules = estAgent ? ['prix_sur_demande'] : ['juridique_verifie', 'exclusivite', 'a_la_une', 'prix_sur_demande', 'coup_de_coeur'];
+  bascules.forEach(function (k) { if (d[k] !== undefined) b[k] = oui_(d[k]); });
   if (d.equipements !== undefined) b.equipements = (d.equipements instanceof Array ? d.equipements : String(d.equipements).split('|')).map(function (x) { return propre_(x, 60); }).filter(String).join('|');
-  if (d.statut !== undefined) { if (STATUTS_BIEN.indexOf(d.statut) === -1) throw erreur_('Statut inconnu.'); b.statut = d.statut; }
+  if (d.statut !== undefined) {
+    var statutsAutorises = estAgent ? STATUTS_BIEN_AGENT : STATUTS_BIEN;
+    if (statutsAutorises.indexOf(d.statut) === -1) throw erreur_(estAgent ? 'Ce statut n’est pas autorisé. Enregistrez en brouillon ou soumettez pour validation.' : 'Statut inconnu.');
+    b.statut = d.statut;
+  }
   if (d.transaction !== undefined) { if (TRANSACTIONS_BIEN.indexOf(d.transaction) === -1) throw erreur_('Type de transaction inconnu.'); b.transaction = d.transaction; }
+  if (!estAgent) {
+    if (d.agent_id !== undefined) b.agent_id = propre_(d.agent_id, 60);
+    if (d.commission !== undefined) b.commission = propre_(d.commission, 60);
+    if (d.commission_statut !== undefined) { if (d.commission_statut && STATUTS_COMMISSION.indexOf(d.commission_statut) === -1) throw erreur_('Statut de commission inconnu.'); b.commission_statut = d.commission_statut; }
+  }
   return b;
 }
 function prochainIdBien_() {
@@ -365,9 +424,11 @@ var ADMIN = {
     var favoris = {};
     lire_('FAVORIS').forEach(function (f) { favoris[f.bien_id] = (favoris[f.bien_id] || 0) + (parseInt(f.action, 10) || 0); });
     var param = {}; lire_('PARAMETRES').forEach(function (p) { param[p.cle] = p.valeur; });
+    var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation }; });
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
-      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION } };
+      agents: agents, motifsRefus: tous_('MOTIFS_REFUS'),
+      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
   },
 
   bienEnregistrer: function (d) {
@@ -453,6 +514,150 @@ var ADMIN = {
   motDePasseChanger: function (d) {
     if (!verifierMotDePasse_(d.ancien)) throw erreur_('Mot de passe actuel incorrect.');
     definirMotDePasse_(d.nouveau);
+    return {};
+  },
+
+  /* ---- Validation des biens soumis par les agents ---- */
+  bienValider: function (d) {
+    var b = trouver_('BIENS', d.id);
+    if (!b) throw erreur_('Bien introuvable.', 'INTROUVABLE');
+    var maj = { statut: 'publie', motif_refus: '', commentaire_refus: '', date_maj: maintenant_() };
+    if (!b.date_publication) maj.date_publication = maintenant_();
+    var r = modifier_('BIENS', d.id, maj);
+    notifierAgentDeBien_(b, 'Votre bien a été publié', 'Bonne nouvelle : votre bien « ' + b.titre + ' » (Réf. ' + b.id + ') a été validé et est maintenant visible sur le site.');
+    return { bien: sans_(r) };
+  },
+  bienRefuser: function (d) {
+    var b = trouver_('BIENS', d.id);
+    if (!b) throw erreur_('Bien introuvable.', 'INTROUVABLE');
+    var motif = propre_(d.motif, 300), commentaire = propre_(d.commentaire, 3000);
+    var r = modifier_('BIENS', d.id, { statut: 'refuse', motif_refus: motif, commentaire_refus: commentaire, date_maj: maintenant_() });
+    notifierAgentDeBien_(b, 'Votre bien nécessite une correction', 'Votre bien « ' + b.titre + ' » (Réf. ' + b.id + ') n’a pas pu être publié en l’état.' +
+      (motif ? '\nMotif : ' + motif : '') + (commentaire ? '\n\n' + commentaire : '') + '\n\nVous pouvez le corriger puis le soumettre à nouveau depuis votre espace.');
+    return { bien: sans_(r) };
+  },
+
+  /* ---- Gestion des agents / apporteurs d'affaires ---- */
+  agentEnregistrer: function (d) {
+    var s = d.agent || {}, a = {};
+    ['nom', 'email', 'telephone', 'whatsapp'].forEach(function (k) { if (s[k] !== undefined) a[k] = propre_(s[k], 200); });
+    if (s.actif !== undefined) a.actif = oui_(s.actif);
+    if (s.id) {
+      var avant = trouver_('AGENTS', s.id);
+      if (!avant) throw erreur_('Agent introuvable.', 'INTROUVABLE');
+      if (a.email && a.email.toLowerCase() !== avant.email.toLowerCase() && trouverAgentParEmail_(a.email)) throw erreur_('Un agent utilise déjà cet e-mail.');
+      if (s.motDePasse) { if (String(s.motDePasse).length < 8) throw erreur_('Le mot de passe doit contenir au moins 8 caractères.'); a.sel = Utilities.getUuid(); a.hachage = hacher_(s.motDePasse, a.sel); }
+      return { agent: sansClefs_(modifier_('AGENTS', s.id, a), ['sel', 'hachage']) };
+    }
+    if (!a.nom) throw erreur_('Indiquez un nom.');
+    if (!a.email) throw erreur_('Indiquez un e-mail.');
+    if (trouverAgentParEmail_(a.email)) throw erreur_('Un agent utilise déjà cet e-mail.');
+    if (!s.motDePasse || String(s.motDePasse).length < 8) throw erreur_('Choisissez un mot de passe d’au moins 8 caractères pour l’agent.');
+    a.id = identifiant_('AG'); a.actif = a.actif || 'oui'; a.date_creation = maintenant_();
+    a.sel = Utilities.getUuid(); a.hachage = hacher_(s.motDePasse, a.sel);
+    return { agent: sansClefs_(ajouter_('AGENTS', a), ['sel', 'hachage']) };
+  },
+  agentSupprimer: function (d) {
+    if (lire_('BIENS').some(function (b) { return b.agent_id === d.id; })) throw erreur_('Cet agent a des biens rattachés : réattribuez-les avant de le supprimer.');
+    supprimer_('AGENTS', d.id);
+    return {};
+  },
+
+  /* ---- Motifs de refus préenregistrés (modifiables sans toucher au code) ---- */
+  motifEnregistrer: function (d) {
+    var s = d.motif || {}, m = {};
+    if (s.libelle !== undefined) m.libelle = propre_(s.libelle, 300);
+    if (s.actif !== undefined) m.actif = oui_(s.actif);
+    if (s.id) return { motif: sans_(modifier_('MOTIFS_REFUS', s.id, m)) };
+    if (!m.libelle) throw erreur_('Indiquez un libellé.');
+    m.id = identifiant_('MR'); m.actif = m.actif || 'oui'; m.ordre = String(lire_('MOTIFS_REFUS').length + 1);
+    return { motif: sans_(ajouter_('MOTIFS_REFUS', m)) };
+  },
+  motifSupprimer: function (d) { supprimer_('MOTIFS_REFUS', d.id); return {}; }
+};
+
+/* Variante de sans_ qui masque en plus certaines clés sensibles (ex. sel/hachage d'un agent). */
+function sansClefs_(o, clefs) { var c = sans_(o); clefs.forEach(function (k) { delete c[k]; }); return c; }
+function notifierAgentDeBien_(bien, sujet, corps) {
+  if (!bien || !bien.agent_id) return;
+  var a = trouver_('AGENTS', bien.agent_id);
+  if (!a || !a.email) return;
+  try { MailApp.sendEmail(a.email, 'Nassiri Real Estate — ' + sujet, corps); } catch (e) { /* un échec d'e-mail ne doit jamais bloquer l'action */ }
+}
+function notifierAdminNouvelleSoumission_(bien, agent) {
+  var dest = parametre_('email_alertes');
+  if (!dest) return;
+  try {
+    MailApp.sendEmail(dest, 'Nassiri Real Estate — Bien à valider : ' + bien.titre,
+      (agent ? agent.nom : 'Un agent') + ' a soumis un bien pour validation.\n\nBien : ' + bien.id + ' — ' + bien.titre +
+      '\nVille : ' + bien.ville + (bien.quartier ? ', ' + bien.quartier : '') +
+      '\n\nRetrouvez-le dans l’Espace Pro, section « À valider ».');
+  } catch (e) { /* un échec d'e-mail ne doit jamais bloquer l'action */ }
+}
+
+/* ============================== ESPACE AGENT ============================== */
+/* Toute action ici est déjà scopée par exigerSessionAgent_ : agentId est l'identifiant vérifié côté serveur,
+   jamais une valeur envoyée par le client. Un agent ne peut jamais lire ni modifier le bien d'un autre agent. */
+
+var AGENT = {
+  deconnexionAgent: function (d) { CacheService.getScriptCache().remove('session_agent_' + d.jeton); return {}; },
+
+  donneesAgent: function (d, agentId) {
+    var a = trouver_('AGENTS', agentId);
+    var mesBiens = lire_('BIENS').filter(function (b) { return b.agent_id === agentId; }).map(function (b) { return sansClefs_(b, ['commission', 'commission_statut']); });
+    var mesIds = {}; mesBiens.forEach(function (b) { mesIds[b.id] = true; });
+    var mesPhotos = tous_('PHOTOS').filter(function (p) { return mesIds[p.bien_id]; });
+    return { agent: { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp },
+      biens: mesBiens, photos: mesPhotos, motifsRefus: tous_('MOTIFS_REFUS').filter(function (m) { return m.actif === 'oui'; }),
+      listes: { statutsBienAgent: STATUTS_BIEN_AGENT, transactionsBien: TRANSACTIONS_BIEN } };
+  },
+
+  bienEnregistrerAgent: function (d, agentId) {
+    var id = d.bien && d.bien.id, ancien = id ? trouver_('BIENS', id) : null;
+    if (ancien && ancien.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    var b = bienDepuis_(d.bien || {}, true);
+    b.date_maj = maintenant_();
+    var futurStatut = b.statut || (ancien ? ancien.statut : 'brouillon');
+    var soumission = futurStatut === 'en_attente' && (!ancien || ancien.statut !== 'en_attente');
+    if (soumission) { b.motif_refus = ''; b.commentaire_refus = ''; }
+    var r;
+    if (ancien) { r = modifier_('BIENS', id, b); }
+    else {
+      b.id = prochainIdBien_(); b.agent_id = agentId; b.statut = b.statut || 'brouillon'; b.transaction = b.transaction || 'vente';
+      b.date_creation = b.date_maj; b.vues = '0';
+      if (!b.titre) b.titre = 'Nouveau bien';
+      r = ajouter_('BIENS', b);
+    }
+    if (soumission) notifierAdminNouvelleSoumission_(r, trouver_('AGENTS', agentId));
+    return { bien: sansClefs_(r, ['commission', 'commission_statut']) };
+  },
+  bienSupprimerAgent: function (d, agentId) {
+    var b = trouver_('BIENS', d.id);
+    if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    if (['brouillon', 'en_attente', 'refuse'].indexOf(b.statut) === -1) throw erreur_('Ce bien est déjà publié : contactez l’agence pour le retirer.', 'INTERDIT');
+    lire_('PHOTOS').filter(function (p) { return p.bien_id === d.id; }).sort(function (a, b2) { return b2._ligne - a._ligne; })
+      .forEach(function (p) { jeterPhoto_(p.drive_id); feuille_('PHOTOS').deleteRow(p._ligne); });
+    supprimer_('BIENS', d.id);
+    return {};
+  },
+  photoAjouterAgent: function (d, agentId) {
+    var b = trouver_('BIENS', d.bien_id);
+    if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    var s = stockerPhoto_(d.photo, d.bien_id), n = lire_('PHOTOS').filter(function (p) { return p.bien_id === d.bien_id; }).length;
+    return { photo: sans_(ajouter_('PHOTOS', { id: identifiant_('PH'), bien_id: d.bien_id, url: s.url, drive_id: s.drive_id, ordre: String(n + 1) })) };
+  },
+  photoSupprimerAgent: function (d, agentId) {
+    var p = trouver_('PHOTOS', d.id);
+    if (!p) return {};
+    var b = trouver_('BIENS', p.bien_id);
+    if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    jeterPhoto_(p.drive_id); supprimer_('PHOTOS', d.id);
+    return {};
+  },
+  photosOrdonnerAgent: function (d, agentId) {
+    var b = trouver_('BIENS', d.bien_id);
+    if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    (d.ids || []).forEach(function (id, i) { var p = trouver_('PHOTOS', id); if (p && p.bien_id === d.bien_id) modifier_('PHOTOS', id, { ordre: String(i + 1) }); });
     return {};
   }
 };

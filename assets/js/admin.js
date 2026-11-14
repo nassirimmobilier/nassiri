@@ -6,8 +6,8 @@
   "use strict";
   var A = window.ATLAS, e = A.esc, ico = A.icone;
   var racine, D = null;
-  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "" };
-  var LIB_STATUT = { brouillon: "Brouillon", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé" };
+  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
+  var LIB_STATUT = { brouillon: "Brouillon", en_attente: "En attente de validation", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé", refuse: "Refusé" };
   var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
   var ICO_ALERTE = { contact: "courrier", visite: "calendrier", confier: "cle" };
@@ -24,6 +24,7 @@
     return '<div class="' + (cls || "") + '"><label for="f-' + nom + '">' + libelle + '</label><input id="f-' + nom + '" name="' + nom + '" value="' + e(valeur || "") + '" ' + (attrs || "") + "></div>";
   }
   function badgeStatut(s) { return '<span class="a-statut a-statut-' + e(s) + '">' + e(LIB_STATUT[s] || s) + "</span>"; }
+  function agent(id) { return D.agents.filter(function (a) { return a.id === id; })[0]; }
 
   function confirmer(titre, texte, bouton) {
     return new Promise(function (ok) {
@@ -48,7 +49,7 @@
   }
   function charger() { return A.api("donnees").then(function (r) { D = r; try { sessionStorage.removeItem("nassiri_catalogue"); } catch (x) {} }); }
   function indicateur() { var i = document.getElementById("a-occupe"); if (i) { i.textContent = etat.occupe; i.hidden = !etat.occupe; } }
-  function aller(vue, id) { etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; rendre(); window.scrollTo(0, 0); }
+  function aller(vue, id) { etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; rendre(); window.scrollTo(0, 0); }
 
   /* ====================================================================== CONNEXION */
   function vueConnexion(erreur) {
@@ -70,6 +71,8 @@
     if (vis) l.push({ t: vis + (vis > 1 ? " visites à confirmer" : " visite à confirmer"), i: "calendrier", v: "demandes", s: "visites" });
     var prop = D.propositions.filter(function (p) { return p.statut === "Nouveau"; }).length;
     if (prop) l.push({ t: prop + (prop > 1 ? " biens proposés à étudier" : " bien proposé à étudier"), i: "cle", v: "demandes", s: "propositions" });
+    var att = D.biens.filter(function (b) { return b.statut === "en_attente"; }).length;
+    if (att) l.push({ t: att + (att > 1 ? " biens d’agents à valider" : " bien d’agent à valider"), i: "cle", v: "biens", s: "", filtreBien: "en_attente" });
     D.prospects.filter(function (p) { return p.date_relance && p.date_relance <= t && p.statut !== "Vente"; })
       .forEach(function (p) { l.push({ t: "Relancer " + p.nom + " (prévu le " + A.dateFr(p.date_relance) + ")", i: "telephone", v: "prospect", id: p.id }); });
     D.biens.filter(function (b) { return b.statut === "brouillon"; }).forEach(function (b) { l.push({ t: "Brouillon à terminer : " + b.titre, i: "crayon", v: "bien", id: b.id }); });
@@ -94,7 +97,7 @@
     return '<div class="a-tuiles">' + tuile(actifs, "Biens actifs", "maison", "biens") + tuile(vendus, "Biens vendus", "coche", "biens") + tuile(D.prospects.length, "Prospects", "personnes", "prospects") +
       tuile(D.visites.length, "Demandes de visite", "calendrier", "demandes", "visites") + tuile(favoris, "Favoris (anonymes)", "coeur", "biens") + "</div>" +
       '<div class="a-deux"><section class="a-bloc"><h2>Actions à effectuer</h2>' +
-        (actions.length ? actions.map(function (a) { return '<button class="a-ligne" data-action="aller" data-vue="' + a.v + '"' + (a.id ? ' data-id="' + e(a.id) + '"' : "") + (a.s ? ' data-sous="' + a.s + '"' : "") + '><span class="a-pastille a-pastille-or">' + ico(a.i) + '</span><span class="a-ligne-texte">' + e(a.t) + "</span>" + ico("droite") + "</button>"; }).join("") : '<p class="a-vide">Tout est à jour.</p>') +
+        (actions.length ? actions.map(function (a) { return '<button class="a-ligne" data-action="aller" data-vue="' + a.v + '"' + (a.id ? ' data-id="' + e(a.id) + '"' : "") + (a.s ? ' data-sous="' + a.s + '"' : "") + (a.filtreBien ? ' data-filtre-bien="' + e(a.filtreBien) + '"' : "") + '><span class="a-pastille a-pastille-or">' + ico(a.i) + '</span><span class="a-ligne-texte">' + e(a.t) + "</span>" + ico("droite") + "</button>"; }).join("") : '<p class="a-vide">Tout est à jour.</p>') +
       '</section><section class="a-bloc"><h2>Dernières demandes reçues</h2>' +
         (D.alertes.length ? D.alertes.slice().sort(recent).slice(0, 6).map(ligneAlerte).join("") : '<p class="a-vide">Aucune demande pour le moment.</p>') +
       '</section></div><section class="a-bloc"><h2>Biens les plus consultés</h2>' +
@@ -108,21 +111,32 @@
     var l = D.biens.filter(function (b) { return (!etat.filtreBien || b.statut === etat.filtreBien) && (!q || (b.titre + " " + b.ville + " " + b.quartier + " " + b.id).toLowerCase().indexOf(q) !== -1); })
       .sort(function (a, b) { return String(b.date_maj).localeCompare(String(a.date_maj)); });
     var puce = function (v, t) { var c = v ? D.biens.filter(function (b) { return b.statut === v; }).length : D.biens.length; return '<button class="puce' + (etat.filtreBien === v ? " est-actif" : "") + '" data-action="filtre-bien" data-v="' + v + '">' + t + " (" + c + ")</button>"; };
-    return '<div class="a-outils"><div class="a-puces">' + puce("", "Tous") + puce("publie", "Publiés") + puce("brouillon", "Brouillons") + puce("sous-offre", "Sous offre") + puce("vendu", "Vendus") + puce("archive", "Archivés") + "</div>" +
+    return '<div class="a-outils"><div class="a-puces">' + puce("", "Tous") + puce("en_attente", "À valider") + puce("publie", "Publiés") + puce("brouillon", "Brouillons") + puce("refuse", "Refusés") + puce("sous-offre", "Sous offre") + puce("vendu", "Vendus") + puce("archive", "Archivés") + "</div>" +
       '<input class="a-recherche" type="search" placeholder="Rechercher un bien…" value="' + e(etat.recherche) + '" data-recherche aria-label="Rechercher un bien"></div>' +
       (l.length ? '<div class="a-biens">' + l.map(function (b) {
-        var ph = photosDe(b.id), une = b.a_la_une === "oui", coeur = b.coup_de_coeur === "oui";
+        var ph = photosDe(b.id), une = b.a_la_une === "oui", coeur = b.coup_de_coeur === "oui", ag = b.agent_id && agent(b.agent_id);
         return '<article class="a-bien"><button class="a-bien-photo" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '" aria-label="Modifier ' + e(b.titre) + '">' + A.photo(ph[0] && ph[0].url, "160px", "") + "</button>" +
-          '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + ((b.transaction === "location-longue" || b.transaction === "location-courte") ? '<span class="a-statut a-statut-une">' + (LIB_TRANSACTION[b.transaction] || "Location") + "</span>" : "") + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (coeur ? '<span class="a-statut a-statut-une">' + ico("coeur") + " Coup de cœur</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + "</div>" +
+          '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + ((b.transaction === "location-longue" || b.transaction === "location-courte") ? '<span class="a-statut a-statut-une">' + (LIB_TRANSACTION[b.transaction] || "Location") + "</span>" : "") + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (coeur ? '<span class="a-statut a-statut-une">' + ico("coeur") + " Coup de cœur</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + (ag ? '<span class="a-statut a-statut-p">' + ico("personnes") + " " + e(ag.nom.replace(/^Exemple — /, "")) + "</span>" : "") + "</div>" +
           "<h3>" + e(b.titre) + "</h3><p>" + e(b.type) + " · " + e(b.ville) + (b.quartier ? " · " + e(b.quartier) : "") + " · Réf. " + e(b.id) + "</p>" +
-          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p></div>" +
-          '<div class="a-bien-actions"><button class="btn btn-vert" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '">' + ico("crayon") + " Modifier</button>" +
+          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p>" +
+          (b.statut === "refuse" && b.motif_refus ? '<div class="a-refus"><strong>' + ico("info") + " " + e(b.motif_refus) + "</strong>" + (b.commentaire_refus ? "<p>" + e(b.commentaire_refus) + "</p>" : "") + "</div>" : "") + "</div>" +
+          '<div class="a-bien-actions">' + (b.statut === "en_attente"
+            ? '<button class="btn btn-vert" data-action="valider-bien" data-id="' + e(b.id) + '">' + ico("coche") + " Valider</button><button class=\"btn btn-ligne est-danger\" data-action=\"ouvrir-refus\" data-id=\"" + e(b.id) + '">' + ico("fermer") + " Refuser</button>"
+            : '<button class="btn btn-vert" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '">' + ico("crayon") + " Modifier</button>") +
           '<label class="a-select"><span class="sr">Statut de ' + e(b.titre) + '</span><select data-action-change="statut-bien" data-id="' + e(b.id) + '">' + D.listes.statutsBien.map(function (s) { return option(s, (s === b.statut ? "Statut : " : "Passer en : ") + LIB_STATUT[s], b.statut); }).join("") + "</select></label>" +
           '<div class="a-bien-mini"><button class="a-icone' + (une ? " est-actif" : "") + '" data-action="une" data-id="' + e(b.id) + '" aria-pressed="' + une + '" title="Mettre à la une">' + ico("etoile") + "</button>" +
           '<button class="a-icone' + (coeur ? " est-actif" : "") + '" data-action="coeur" data-id="' + e(b.id) + '" aria-pressed="' + coeur + '" title="Coup de cœur">' + ico("coeur") + "</button>" +
           (b.statut === "publie" || b.statut === "sous-offre" ? '<a class="a-icone" href="bien.html?id=' + encodeURIComponent(b.id) + '" target="_blank" rel="noopener" title="Voir sur le site">' + ico("oeil") + "</a>" : "") +
-          '<button class="a-icone a-icone-danger" data-action="supprimer-bien" data-id="' + e(b.id) + '" title="Supprimer">' + ico("corbeille") + "</button></div></div></article>";
+          '<button class="a-icone a-icone-danger" data-action="supprimer-bien" data-id="' + e(b.id) + '" title="Supprimer">' + ico("corbeille") + "</button></div></div>" +
+          (etat.refus === b.id ? panneauRefus(b) : "") + "</article>";
       }).join("") + "</div>" : '<p class="a-vide a-bloc">Aucun bien dans cette liste.</p>');
+  }
+  function panneauRefus(b) {
+    return '<form class="a-refus-form" id="form-refus" data-id="' + e(b.id) + '"><label class="a-etiquette">Motif du refus</label><div class="a-puces">' +
+      (D.motifsRefus || []).filter(function (m) { return m.actif === "oui"; }).map(function (m) { return '<button type="button" class="puce" data-action="choisir-motif" data-motif="' + e(m.libelle) + '">' + e(m.libelle) + "</button>"; }).join("") +
+      '</div><label for="f-motif">Motif (modifiable)</label><input id="f-motif" name="motif" value="">' +
+      '<label for="f-commentaire-refus">Commentaire pour l’agent</label><textarea id="f-commentaire-refus" name="commentaire" rows="3" placeholder="Précisez ce qui doit être corrigé…"></textarea>' +
+      '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="annuler-refus">Annuler</button><button type="submit" class="btn btn-danger">Confirmer le refus</button></div></form>';
   }
 
   function vueBien() {
@@ -131,7 +145,13 @@
     var ph = nouveau ? [] : photosDe(etat.id), eq = String(b.equipements || "").split("|").filter(Boolean);
     var tous = A.equipements.concat(eq.filter(function (x) { return A.equipements.indexOf(x) === -1; }));
     var bascule = function (nom, libelle, aide) { return '<label class="a-bascule"><input type="checkbox" name="' + nom + '"' + (b[nom] === "oui" || b[nom] === true ? " checked" : "") + "><span></span><div><strong>" + libelle + "</strong><small>" + aide + "</small></div></label>"; };
-    return '<form id="form-bien" class="a-form" novalidate>' +
+    var banniereAgent = "";
+    if (!nouveau && b.statut === "en_attente") {
+      banniereAgent = '<section class="a-bloc a-refus" style="background:#FBF6EA;border-color:#EBDDBC;color:#5c4a22"><strong>' + ico("cle") + " Bien soumis par " + e((agent(b.agent_id) || {}).nom || "un agent") + ' — en attente de validation</strong><div class="a-form-pied" style="margin-top:10px"><button type="button" class="btn btn-vert" data-action="valider-bien" data-id="' + e(b.id) + '">' + ico("coche") + " Valider et publier</button><button type=\"button\" class=\"btn btn-ligne est-danger\" data-action=\"ouvrir-refus\" data-id=\"" + e(b.id) + '">' + ico("fermer") + " Refuser</button></div>" + (etat.refus === b.id ? panneauRefus(b) : "") + "</section>";
+    } else if (!nouveau && b.statut === "refuse" && b.motif_refus) {
+      banniereAgent = '<section class="a-bloc a-refus"><strong>' + ico("info") + " Refusé — " + e(b.motif_refus) + "</strong>" + (b.commentaire_refus ? "<p>" + e(b.commentaire_refus) + "</p>" : "") + "</section>";
+    }
+    return banniereAgent + '<form id="form-bien" class="a-form" novalidate>' +
       '<section class="a-bloc"><h2>L’essentiel</h2><div class="a-grille">' +
         champ("titre", "Titre de l’annonce *", b.titre, 'placeholder="ex. Villa contemporaine avec piscine" required', "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type">' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
@@ -161,6 +181,9 @@
         bascule("prix_sur_demande", "Prix sur demande", "Masque le prix sur le site public et affiche « Prix sur demande ».") + "</section>" +
       '<section class="a-bloc a-bloc-prive"><h2>' + ico("bouclier") + ' Informations privées</h2><p class="a-aide">Jamais affichées sur le site public.</p><div class="a-grille">' +
         champ("adresse_privee", "Adresse exacte / propriétaire", b.adresse_privee, "", "plein") + '<div class="plein"><label for="f-notes">Notes internes</label><textarea id="f-notes" name="notes_privees" rows="3">' + e(b.notes_privees || "") + "</textarea></div></div></section>" +
+      (b.agent_id ? '<section class="a-bloc a-bloc-prive"><h2>' + ico("bouclier") + " Agent apporteur · " + e((agent(b.agent_id) || {}).nom || b.agent_id) + '</h2><p class="a-aide">Visible uniquement dans l’Espace Pro, jamais dans l’Espace Agent ni sur le site public.</p><div class="a-grille">' +
+        champ("commission", "Commission convenue", b.commission, 'placeholder="ex. 2% du prix de vente, ou 30 000 DH"', "plein") +
+        '<div><label for="f-commission_statut">Statut de la commission</label><select id="f-commission_statut" name="commission_statut"><option value="">Non précisé</option>' + (D.listes.statutsCommission || []).map(function (s) { return option(s, s, b.commission_statut); }).join("") + "</select></div></div></section>" : "") +
       '<div class="a-barre"><div class="a-barre-statut">' + badgeStatut(b.statut || "brouillon") + (nouveau ? "" : "<small>Réf. " + e(b.id) + " · modifié le " + e(A.dateFr(b.date_maj, true)) + "</small>") + "</div>" +
         '<div class="a-barre-actions"><button type="button" class="btn btn-ligne" data-action="aller" data-vue="biens">Retour</button>' +
         '<button type="submit" class="btn ' + (b.statut === "publie" ? "btn-vert" : "btn-ligne") + '" data-publier="0">Enregistrer</button>' +
@@ -170,6 +193,8 @@
     var f = document.getElementById("form-bien"); if (!f || !etat.edition) return;
     var b = etat.edition;
     ["titre", "type", "transaction", "prix", "ville", "quartier", "surface", "terrain", "chambres", "sdb", "description", "juridique", "adresse_privee", "notes_privees"].forEach(function (k) { b[k] = f.elements[k].value.trim(); });
+    if (f.elements.commission) b.commission = f.elements.commission.value.trim();
+    if (f.elements.commission_statut) b.commission_statut = f.elements.commission_statut.value;
     ["juridique_verifie", "a_la_une", "exclusivite", "coup_de_coeur", "prix_sur_demande"].forEach(function (k) { b[k] = f.elements[k].checked ? "oui" : "non"; });
     b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
   }
@@ -207,6 +232,28 @@
     ids.splice(mouvement === "debut" ? 0 : Math.max(0, i + mouvement), 0, idPhoto);
     lireFormBien();
     return faire("photosOrdonner", { bien_id: etat.id, ids: ids }, "Ordre des photos mis à jour.").then(rendre);
+  }
+
+  /* ====================================================================== AGENTS (apporteurs d'affaires) */
+  function vueAgents() {
+    var l = D.agents.slice().sort(function (a, b) { return a.nom.localeCompare(b.nom); });
+    return (l.length ? '<section class="a-bloc a-bloc-liste">' + l.map(function (a) {
+      var mesBiens = D.biens.filter(function (b) { return b.agent_id === a.id; }), leads = mesBiens.length ? D.alertes.filter(function (al) { return mesBiens.some(function (b) { return b.id === al.bien_id; }); }).length : 0;
+      return '<button class="a-ligne" data-action="aller" data-vue="agent" data-id="' + e(a.id) + '"><span class="a-pastille">' + e((a.nom || "?").replace(/^Exemple — /, "").charAt(0).toUpperCase()) + '</span><span class="a-ligne-texte"><strong>' + e(a.nom) + "</strong><small>" + e(a.email) + " · " + mesBiens.length + (mesBiens.length > 1 ? " biens apportés" : " bien apporté") + " · " + leads + (leads > 1 ? " demandes reçues" : " demande reçue") + "</small></span>" +
+        '<span class="a-statut ' + (a.actif === "oui" ? "a-statut-publie" : "a-statut-brouillon") + '">' + (a.actif === "oui" ? "Actif" : "Désactivé") + "</span></button>";
+    }).join("") + "</section>" : '<p class="a-vide a-bloc">Aucun agent / apporteur d’affaires pour le moment.</p>');
+  }
+  function vueAgent() {
+    var nouveau = !etat.id, a = nouveau ? { actif: "oui" } : agent(etat.id);
+    if (!a) return '<p class="a-vide a-bloc">Agent introuvable.</p>';
+    var mesBiens = nouveau ? [] : D.biens.filter(function (b) { return b.agent_id === a.id; });
+    return '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
+      champ("nom", "Nom *", a.nom, "required", "plein") + champ("email", "E-mail (identifiant de connexion) *", a.email, 'type="email" required') + champ("telephone", "Téléphone", a.telephone, 'type="tel"') +
+      champ("whatsapp", "WhatsApp", a.whatsapp, "") + champ("motDePasse", nouveau ? "Mot de passe (8 caractères minimum) *" : "Nouveau mot de passe (laisser vide pour ne pas changer)", "", 'type="password" autocomplete="new-password"') + "</div>" +
+      (nouveau ? "" : '<label class="a-bascule"><input type="checkbox" name="actif"' + (a.actif === "oui" ? " checked" : "") + "><span></span><div><strong>Accès actif</strong><small>Désactivez pour bloquer sa connexion sans supprimer ses biens.</small></div></label>") +
+      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
+      (nouveau ? "" : '<section class="a-bloc"><h2>Biens apportés (' + mesBiens.length + ")</h2>" +
+        (mesBiens.length ? mesBiens.map(function (b) { return '<button class="a-ligne" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '"><span class="a-ligne-texte"><strong>' + e(b.titre) + "</strong><small>" + e(b.id) + "</small></span>" + badgeStatut(b.statut) + "</button>"; }).join("") : '<p class="a-vide">Aucun bien pour le moment.</p>') + "</section>") + "</div>";
   }
 
   /* ====================================================================== PROSPECTS */
@@ -278,20 +325,26 @@
         champ("email_alertes", "E-mail qui reçoit les alertes", p.email_alertes, 'type="email" placeholder="vous@exemple.com"', "plein") +
         champ("whatsapp", "WhatsApp : Nom:numéro international, séparés par une virgule", p.whatsapp, 'placeholder="ex. Khaled Nassiri:33667407214, Mohamed Nassiri:33641078018"', "plein") + champ("telephone", "Téléphone affiché", p.telephone, 'type="tel"') +
         champ("email_contact", "E-mail de contact affiché", p.email_contact, 'type="email"', "plein") + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
+      '<section class="a-bloc"><h2>Motifs de refus (Espace Agent)</h2><p class="a-aide">Boutons proposés au staff pour refuser rapidement un bien soumis par un agent. Désactivez un motif pour le retirer sans perdre son historique.</p>' +
+        (D.motifsRefus && D.motifsRefus.length ? D.motifsRefus.slice().sort(function (a, b) { return n(a.ordre) - n(b.ordre); }).map(function (m) {
+          return '<div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte">' + e(m.libelle) + '</span><label class="a-select"><span class="sr">Actif</span><select data-action-change="statut-motif" data-id="' + e(m.id) + '"><option value="oui"' + (m.actif === "oui" ? " selected" : "") + '>Actif</option><option value="non"' + (m.actif !== "oui" ? " selected" : "") + ">Désactivé</option></select></label>" +
+            '<button class="a-icone a-icone-danger" data-action="supprimer-motif" data-id="' + e(m.id) + '" title="Supprimer">' + ico("corbeille") + "</button></div>";
+        }).join("") : '<p class="a-vide">Aucun motif pour le moment.</p>') +
+        '<form id="form-motif" class="a-historique-ajout"><input name="libelle" placeholder="Nouveau motif…" aria-label="Nouveau motif" required><button class="btn btn-vert" type="submit" aria-label="Ajouter">' + ico("plus") + "</button></form></section>" +
       (A.demo
         ? '<section class="a-bloc"><h2>Mode démonstration</h2><p class="a-aide">Le site n’est pas encore relié à Google Sheets : les données sont fictives et restent sur cet appareil. Aucun e-mail réel n’est envoyé. Suivez <strong>docs/INSTALLATION.md</strong> pour activer la connexion.</p><div class="a-form-pied"><button class="btn btn-ligne" data-action="reinitialiser-demo">Réinitialiser les données de démonstration</button></div></section>'
         : '<form id="form-mdp" class="a-bloc a-form" novalidate><h2>Mot de passe</h2><div class="a-grille">' + champ("ancien", "Mot de passe actuel", "", 'type="password" autocomplete="current-password"') + champ("nouveau", "Nouveau mot de passe (10 caractères minimum)", "", 'type="password" autocomplete="new-password"') + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Changer le mot de passe</button></div></form>');
   }
 
   /* ====================================================================== GABARIT */
-  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["prospects", "Prospects", "personnes"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
+  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["prospects", "Prospects", "personnes"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
   function rendre() {
     if (!D) { racine.innerHTML = vueConnexion(); return; }
-    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
-    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", demandes: "Demandes", parametres: "Paramètres" };
-    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres }[v]();
-    var action = v === "biens" || v === "tableau" ? '<button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : "";
-    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : "";
+    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
+    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", demandes: "Demandes", parametres: "Paramètres" };
+    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres }[v]();
+    var action = v === "biens" || v === "tableau" ? '<button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : "";
+    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : "";
     racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Pro">' +
       MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
@@ -302,11 +355,19 @@
 
   /* ====================================================================== ÉVÉNEMENTS */
   var ACTIONS = {
-    aller: function (b) { if (b.dataset.sous) etat.sousVue = b.dataset.sous; aller(b.dataset.vue, b.dataset.id); },
+    aller: function (b) { if (b.dataset.sous) etat.sousVue = b.dataset.sous; if (b.dataset.filtreBien !== undefined) etat.filtreBien = b.dataset.filtreBien; aller(b.dataset.vue, b.dataset.id); },
     "filtre-bien": function (b) { etat.filtreBien = b.dataset.v; rendre(); },
     "filtre-prospect": function (b) { etat.filtreProspect = b.dataset.v; rendre(); },
     "sous-vue": function (b) { etat.sousVue = b.dataset.v; rendre(); },
     deconnexion: function () { A.api("deconnexion").catch(function () {}).then(function () { A.jeton.ecrire(""); D = null; etat.vue = "tableau"; rendre(); }); },
+    "valider-bien": function (b) {
+      var x = bien(b.dataset.id);
+      confirmer("Valider ce bien ?", "« " + x.titre + " » sera publié sur le site public." + (!n(x.prix) ? " Attention : aucun prix n’est renseigné." : ""), "Valider et publier")
+        .then(function (ok) { if (ok) faire("bienValider", { id: x.id }, "Bien validé et publié.").then(function () { if (etat.edition && etat.id === x.id) etat.edition = Object.assign({}, bien(x.id)); rendre(); }); });
+    },
+    "ouvrir-refus": function (b) { etat.refus = b.dataset.id; rendre(); var i = document.getElementById("f-motif"); if (i) i.focus(); },
+    "annuler-refus": function () { etat.refus = null; rendre(); },
+    "choisir-motif": function (b) { var i = document.getElementById("f-motif"); if (i) i.value = b.dataset.motif; },
     une: function (b) { var x = bien(b.dataset.id); faire("bienEnregistrer", { bien: { id: x.id, a_la_une: x.a_la_une === "oui" ? "non" : "oui" } }, x.a_la_une === "oui" ? "Retiré de la une." : "Mis à la une.").then(rendre); },
     coeur: function (b) { var x = bien(b.dataset.id); faire("bienEnregistrer", { bien: { id: x.id, coup_de_coeur: x.coup_de_coeur === "oui" ? "non" : "oui" } }, x.coup_de_coeur === "oui" ? "Retiré des coups de cœur." : "Mis en coup de cœur.").then(rendre); },
     "supprimer-bien": function (b) {
@@ -325,6 +386,10 @@
       if (a.lu !== "oui") faire("alerteLue", { id: a.id }).then(suite); else suite();
     },
     "tout-lu": function () { faire("alerteLue", { tout: true }, "Demandes marquées comme lues.").then(rendre); },
+    "supprimer-agent": function (b) {
+      confirmer("Supprimer cet agent ?", "Son accès sera supprimé définitivement. Réattribuez d’abord ses biens s’il en a.", "Supprimer définitivement")
+        .then(function (ok) { if (ok) faire("agentSupprimer", { id: b.dataset.id }, "Agent supprimé.").then(function () { aller("agents"); }).catch(function () {}); });
+    },
     "supprimer-prospect": function (b) {
       confirmer("Supprimer ce prospect ?", "Sa fiche, son historique et ses demandes seront supprimés définitivement.", "Supprimer définitivement")
         .then(function (ok) { if (ok) faire("prospectSupprimer", { id: b.dataset.id }, "Prospect supprimé.").then(function () { aller("prospects"); }); });
@@ -335,6 +400,7 @@
         notes_privees: "Proposé par " + (p ? p.nom + " — " + (p.telephone || p.email) : "?") + (m.commentaires ? "\n" + m.commentaires : ""), statut: "brouillon" } }, "Brouillon créé : complétez-le puis publiez.")
         .then(function (r) { return faire("propositionStatut", { id: m.id, statut: "À l’étude" }).then(function () { aller("bien", r.bien.id); }); });
     },
+    "supprimer-motif": function (b) { faire("motifSupprimer", { id: b.dataset.id }, "Motif supprimé.").then(rendre); },
     "reinitialiser-demo": function () {
       confirmer("Réinitialiser la démonstration ?", "Toutes les données de test saisies sur cet appareil seront effacées.", "Réinitialiser").then(function (ok) { if (ok) { ATLAS_DEMO.reinitialiser(); A.jeton.ecrire(""); location.reload(); } });
     }
@@ -346,7 +412,8 @@
       faire("bienEnregistrer", { bien: { id: x.id, statut: s.value } }, "Statut : " + LIB_STATUT[s.value] + ".").then(rendre, rendre);
     },
     "statut-visite": function (s) { faire("visiteStatut", { id: s.dataset.id, statut: s.value }, "Visite : " + s.value + ".").then(rendre, rendre); },
-    "statut-proposition": function (s) { faire("propositionStatut", { id: s.dataset.id, statut: s.value }, "Statut mis à jour.").then(rendre, rendre); }
+    "statut-proposition": function (s) { faire("propositionStatut", { id: s.dataset.id, statut: s.value }, "Statut mis à jour.").then(rendre, rendre); },
+    "statut-motif": function (s) { faire("motifEnregistrer", { motif: { id: s.dataset.id, actif: s.value } }, "Motif mis à jour.").then(rendre, rendre); }
   };
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -384,6 +451,17 @@
         faire("parametresEnregistrer", { parametres: v }, "Paramètres enregistrés.").then(rendre);
       } else if (f.id === "form-mdp") {
         faire("motDePasseChanger", v, "Mot de passe modifié.", true).then(function () { f.reset(); });
+      } else if (f.id === "form-refus") {
+        if (!v.motif) { A.message("Choisissez ou saisissez un motif de refus."); return; }
+        faire("bienRefuser", { id: f.dataset.id, motif: v.motif, commentaire: v.commentaire }, "Bien refusé : l’agent a été notifié.").then(function () { etat.refus = null; if (etat.edition && etat.id === f.dataset.id) etat.edition = Object.assign({}, bien(f.dataset.id)); rendre(); });
+      } else if (f.id === "form-agent") {
+        if (!v.nom || !v.email) { A.message("Indiquez un nom et un e-mail."); return; }
+        if (etat.id) v.id = etat.id;
+        if (!v.motDePasse) delete v.motDePasse;
+        faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "Agent créé.").then(function (r) { aller("agents"); });
+      } else if (f.id === "form-motif") {
+        if (!v.libelle) { A.message("Indiquez un libellé."); return; }
+        faire("motifEnregistrer", { motif: v }, "Motif enregistré.", true).then(function () { charger().then(rendre); f.reset(); });
       }
     });
     /* Session existante : on tente de reprendre directement */

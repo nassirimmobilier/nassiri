@@ -23,6 +23,12 @@
     lire: function () { try { return sessionStorage.getItem(CLE_JETON) || ""; } catch (e) { return A.jeton._m || ""; } },
     ecrire: function (j) { A.jeton._m = j; try { j ? sessionStorage.setItem(CLE_JETON, j) : sessionStorage.removeItem(CLE_JETON); } catch (e) {} }
   };
+  /* Session distincte pour l'Espace Agent : jamais mélangée avec la session admin, même onglet, même origine. */
+  var CLE_JETON_AGENT = "nassiri_jeton_agent";
+  A.jetonAgent = {
+    lire: function () { try { return sessionStorage.getItem(CLE_JETON_AGENT) || ""; } catch (e) { return A.jetonAgent._m || ""; } },
+    ecrire: function (j) { A.jetonAgent._m = j; try { j ? sessionStorage.setItem(CLE_JETON_AGENT, j) : sessionStorage.removeItem(CLE_JETON_AGENT); } catch (e) {} }
+  };
 
   /* Appelle une action du serveur. Rejette avec une erreur lisible (err.code = AUTH, LIMITE…). */
   A.api = function (action, donnees) {
@@ -30,6 +36,22 @@
     var p = A.demo
       ? chargerDemo().then(function () { return JSON.parse(ATLAS_DEMO.serveur.doPost({ postData: { contents: JSON.stringify(corps) } }).getContent()); })
       /* text/plain évite la pré-requête CORS, qu'Apps Script ne gère pas */
+      : fetch(A.config.apiUrl, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(corps) })
+          .then(function (r) { if (!r.ok) throw new Error("Le serveur ne répond pas (" + r.status + ")."); return r.json(); });
+    return p.then(function (r) {
+      if (r && r.ok) return r;
+      var e = new Error((r && r.erreur) || "Erreur inconnue."); e.code = r && r.code; e.detail = r && r.detail; throw e;
+    }, function (err) {
+      if (err.code) throw err;
+      var e = new Error(navigator.onLine === false ? "Vous êtes hors connexion." : "Connexion au serveur impossible. Réessayez."); e.code = "RESEAU"; e.detail = String(err.message || err); throw e;
+    });
+  };
+
+  /* Identique à A.api, mais pour l'Espace Agent (jeton et session séparés de l'admin). */
+  A.apiAgent = function (action, donnees) {
+    var corps = Object.assign({ action: action, jeton: A.jetonAgent.lire() }, donnees || {});
+    var p = A.demo
+      ? chargerDemo().then(function () { return JSON.parse(ATLAS_DEMO.serveur.doPost({ postData: { contents: JSON.stringify(corps) } }).getContent()); })
       : fetch(A.config.apiUrl, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(corps) })
           .then(function (r) { if (!r.ok) throw new Error("Le serveur ne répond pas (" + r.status + ")."); return r.json(); });
     return p.then(function (r) {

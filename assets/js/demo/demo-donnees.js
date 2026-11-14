@@ -3,7 +3,7 @@
   "use strict";
   var D = window.ATLAS_DEMO;
   var jour = function (n) { var d = new Date(Date.now() - n * 864e5); return d.toISOString().slice(0, 16); };
-  /* Colonnes : id, statut, titre, type, ville, quartier, prix, surface, terrain, chambres, sdb, exclusivite, aLaUne, joursEcoules, photos, transaction, prixSurDemande, coupDeCoeur */
+  /* Colonnes : id, statut, titre, type, ville, quartier, prix, surface, terrain, chambres, sdb, exclusivite, aLaUne, joursEcoules, photos, transaction, prixSurDemande, coupDeCoeur, agentId, motifRefus */
   var B = [
     ["NR-0001", "publie", "Villa contemporaine avec piscine", "Villa", "Marrakech", "Palmeraie", 12500000, 520, 2400, 5, 5, 1, 1, 6, ["villa-palmeraie", "appartement-hivernage", "appartement-gueliz"], "vente", 0, 0],
     ["NR-0002", "publie", "Appartement panoramique dernier étage", "Appartement", "Marrakech", "Hivernage", 18000, 185, 0, 3, 2, 0, 1, 3, ["appartement-hivernage", "appartement-gueliz"], "location-longue", 0, 0],
@@ -43,6 +43,25 @@
         transaction: b[15] || "vente", prix_sur_demande: b[16] ? "oui" : "non", coup_de_coeur: b[17] ? "oui" : "non" });
       b[14].forEach(function (ph, k) { ligne("PHOTOS", { id: "PH-D" + (++np), bien_id: b[0], url: "assets/img/biens/" + ph, drive_id: "", ordre: k + 1 }); });
     });
+
+    /* Exemple d'agent/apporteur d'affaires, avec un bien en attente de validation et un bien refusé,
+       pour pouvoir tester le circuit de validation sans backend réel. Mot de passe de démonstration : agent-demo */
+    var selAgent = "demo-sel-fixe";
+    ligne("AGENTS", { id: "AG-EX1", nom: "Exemple — Youssef Idrissi", email: "youssef.exemple@example.com", telephone: "+212 600 000 099",
+      whatsapp: "212600000099", sel: selAgent, hachage: hacher_("agent-demo", selAgent), actif: "oui", date_creation: jour(20) });
+    ligne("BIENS", { id: "NR-0015", statut: "en_attente", titre: "Appartement vue golf (exemple agent)", type: "Appartement", ville: "Marrakech", quartier: "Amelkis",
+      prix: 2200000, surface: 110, terrain: "", chambres: 2, sdb: 2,
+      description: "Exemple de bien soumis par un agent, en attente de validation par le staff.",
+      equipements: EQUIP.Appartement, juridique: "", juridique_verifie: "non", exclusivite: "non", a_la_une: "non",
+      date_creation: jour(1), date_publication: "", date_maj: jour(1), vues: "0", adresse_privee: "", notes_privees: "",
+      transaction: "vente", prix_sur_demande: "non", coup_de_coeur: "non", agent_id: "AG-EX1", commission: "", commission_statut: "", motif_refus: "", commentaire_refus: "" });
+    ligne("BIENS", { id: "NR-0016", statut: "refuse", titre: "Studio à rénover (exemple agent)", type: "Appartement", ville: "Marrakech", quartier: "Guéliz",
+      prix: 650000, surface: 38, terrain: "", chambres: 1, sdb: 1,
+      description: "Exemple de bien renvoyé à l’agent pour correction.",
+      equipements: "", juridique: "", juridique_verifie: "non", exclusivite: "non", a_la_une: "non",
+      date_creation: jour(3), date_publication: "", date_maj: jour(2), vues: "0", adresse_privee: "", notes_privees: "",
+      transaction: "vente", prix_sur_demande: "non", coup_de_coeur: "non", agent_id: "AG-EX1", commission: "", commission_statut: "",
+      motif_refus: "Photos insuffisantes ou de mauvaise qualité", commentaire_refus: "Merci d’ajouter au moins 3 photos nettes, notamment de la cuisine et de la salle de bain." });
     [["P-EX1", "Exemple — Prospect A", "+212 600 000 001", "exemple.a@example.com", "4 à 6 M DH", "Villa", "Marrakech", "Nouveau", 0, ""],
      ["P-EX2", "Exemple — Prospect B", "+33 6 00 00 00 02", "exemple.b@example.com", "1,5 à 3 M DH", "Appartement", "Marrakech", "Qualifié", 4, jour(-2).slice(0, 10)],
      ["P-EX3", "Exemple — Prospect C", "+212 600 000 003", "", "8 à 12 M DH", "Villa", "Rabat", "Visite", 9, jour(1).slice(0, 10)]

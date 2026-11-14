@@ -98,6 +98,66 @@ mode réel, il faut remplacer son contenu par la nouvelle version (ci-joint) pou
 4. Dans le Google Sheet, menu « Nassiri Real Estate » → « 1. Installer / vérifier les onglets »
    — cela ajoute les 3 nouvelles colonnes à l'onglet BIENS sans toucher aux biens déjà saisis.
 
+## Nouveau : Espace Agent (apporteurs d'affaires)
+
+Chaque agent / apporteur d'affaires dispose maintenant de son propre accès, séparé de
+l'Espace Pro, sur une nouvelle page **`agent.html`**.
+
+- **Connexion dédiée** : e-mail + mot de passe propres à chaque agent (créés depuis l'Espace
+  Pro → menu « Agents »). Session totalement séparée de celle de l'administrateur (même
+  navigateur, même onglet : les deux accès ne se mélangent jamais).
+- **Chacun ne voit que ses propres biens** dans son espace. Il peut créer un bien, le modifier
+  tant qu'il est en brouillon / en attente / refusé, ajouter des photos, puis le **soumettre**
+  à l'agence. Il ne peut jamais le publier lui-même, ni voir ou modifier la commission, ni
+  changer les réglages réservés au staff (vérification juridique, à la une, coup de cœur).
+- **Validation par le staff obligatoire** : tant qu'un bien soumis par un agent n'a pas été
+  validé depuis l'Espace Pro, il reste invisible du site public. Depuis l'Espace Pro (liste des
+  biens, filtre « À valider », ou directement sur la fiche du bien), deux boutons : **Valider et
+  publier**, ou **Refuser** avec un commentaire libre et des motifs préenregistrés en un clic
+  (eux-mêmes modifiables/ajoutables depuis Paramètres → « Motifs de refus »). Dans les deux cas,
+  l'agent reçoit un e-mail automatique.
+- **Double notification sur une touche** : quand un visiteur contacte l'agence au sujet d'un
+  bien apporté par un agent, l'agent **et** l'administrateur reçoivent chacun un e-mail (plus
+  aucune touche manquée côté agent).
+- **Commission** : renseignée bien par bien (texte libre : pourcentage ou montant négocié),
+  visible et modifiable uniquement depuis la fiche du bien dans l'Espace Pro — jamais envoyée
+  au navigateur de l'agent, jamais affichée sur le site public.
+- **Vue d'ensemble pour l'administrateur** : la nouvelle section « Agents » de l'Espace Pro
+  liste chaque agent avec le nombre de biens apportés et de demandes reçues sur ses biens, et
+  donne accès à la fiche de chacun de ses biens.
+
+### Fichiers ajoutés / modifiés
+
+- `apps-script/Code.gs` : nouvel onglet `AGENTS`, nouvel onglet `MOTIFS_REFUS`, 5 nouvelles
+  colonnes sur `BIENS` (`agent_id`, `commission`, `commission_statut`, `motif_refus`,
+  `commentaire_refus`), nouveaux statuts de bien (`en_attente`, `refuse`), authentification
+  agent complète, nouvelles actions `AGENT.*` et `ADMIN.bienValider` / `bienRefuser` /
+  `agentEnregistrer` / `agentSupprimer` / `motifEnregistrer` / `motifSupprimer`.
+- `agent.html` + `assets/js/agent.js` (nouveaux) : l'Espace Agent.
+- `assets/js/api.js` : ajout de `A.apiAgent` / `A.jetonAgent`, une session distincte de
+  l'Espace Pro.
+- `assets/js/admin.js` + `assets/css/admin.css` : section « Agents », file de validation,
+  panneau de refus, champ commission (visible seulement si le bien a un agent), gestion des
+  motifs de refus dans Paramètres.
+- `assets/js/demo/demo-donnees.js` : un agent et deux biens d'exemple (un en attente, un
+  refusé) pour tester tout le circuit en mode démonstration sans backend réel. Identifiants de
+  démonstration : `youssef.exemple@example.com` / `agent-demo`.
+
+### Important : mise à jour de votre Google Apps Script (obligatoire)
+
+Cette mise à jour ajoute des colonnes et des onglets : il faut impérativement remplacer votre
+`Code.gs` et relancer l'installation, sinon l'Espace Agent ne fonctionnera pas :
+
+1. Google Sheet → Extensions → Apps Script → remplacez tout le contenu de `Code.gs` par le
+   nouveau fichier fourni.
+2. Enregistrez, puis redéployez (Déployer → Gérer les déploiements → crayon → Nouvelle
+   version).
+3. Dans le Google Sheet, menu « Nassiri Real Estate » → « 1. Installer / vérifier les onglets »
+   — cela crée les onglets `AGENTS` et `MOTIFS_REFUS`, ajoute les 5 nouvelles colonnes à `BIENS`
+   et préremplit 3 motifs de refus par défaut, sans toucher aux biens déjà saisis.
+4. Créez votre premier agent depuis l'Espace Pro → « Agents » → « Ajouter un agent », puis
+   communiquez-lui l'adresse de `agent.html` sur votre site, son e-mail et son mot de passe.
+
 ## Vérifié avant livraison
 
 - Filtre Acheter/Louer sur le catalogue (compte, titres, URL, badges).
@@ -107,3 +167,11 @@ mode réel, il faut remplacer son contenu par la nouvelle version (ci-joint) pou
 - Espace Pro : nouveau champ Transaction, cases Coup de cœur / Prix sur demande, bascule rapide
   dans la liste des biens.
 - Aucune erreur dans la console du navigateur sur l'ensemble de ces parcours.
+- Espace Agent : connexion, création/édition d'un bien, soumission à l'agence, impossibilité
+  de voir ou modifier un bien d'un autre agent, impossibilité de publier directement ou de
+  s'attribuer une mise en avant/commission.
+- Espace Pro : validation et refus (avec motif + commentaire) depuis la liste des biens et
+  depuis la fiche d'un bien, double e-mail agent + administrateur sur une touche reçue pour un
+  bien d'agent, création d'un agent, gestion des motifs de refus.
+- Tout testé via le moteur réel (`Code.gs`, copie exacte servie en mode démonstration), pas
+  seulement simulé côté interface.

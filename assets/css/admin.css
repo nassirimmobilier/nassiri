@@ -108,6 +108,14 @@ button.a-ligne:hover { background: var(--ivoire); }
 .a-statut-sous-offre { background: var(--vert); color: #fff; } .a-statut-vendu { background: var(--anthracite); color: #fff; }
 .a-statut-archive { background: #fff; border: 1px dashed #b9b4a6; color: #8b918c; }
 .a-statut-une, .a-statut-p { background: #FBF6EA; color: #7d6228; }
+.a-statut-en_attente { background: #FBF6EA; color: #7d6228; } .a-statut-refuse { background: #FBE8E6; color: #8a2b22; }
+.a-refus { background: #FBE8E6; border: 1px solid #F0C6C1; border-radius: 10px; padding: 10px 14px; margin-top: 10px; font-size: 14px; line-height: 1.5; color: #8a2b22; }
+.a-refus strong { display: flex; align-items: center; gap: 8px; } .a-refus .ico { width: 16px; height: 16px; flex: none; }
+.a-refus p { margin: 4px 0 0; color: #5c201a; }
+.a-bien { position: relative; }
+.a-refus-form { grid-column: 1 / -1; grid-row: 2; background: #FAF9F6; border: 1px solid #E4E0D4; border-radius: 10px; padding: 14px; margin-top: 10px; display: grid; gap: 8px; }
+.a-refus-form label { font-size: 13px; font-weight: 600; }
+.a-refus-form input, .a-refus-form textarea { width: 100%; }
 
 /* ---------- Formulaires ---------- */
 .a-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }

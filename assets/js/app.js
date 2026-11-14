@@ -133,6 +133,7 @@
         '<div class="carte-badges">' + badges + "</div>" +
         '<button class="coeur' + (fav ? " est-actif" : "") + '" type="button" data-favori="' + b.id + '" aria-pressed="' + fav +
           '" aria-label="' + (fav ? "Retirer des favoris" : "Ajouter aux favoris") + ' : ' + A.esc(b.titre) + '">' + A.icone("coeur") + "</button>" +
+        '<button class="partage" type="button" data-partager="' + b.id + '" aria-label="Partager : ' + A.esc(b.titre) + '">' + A.icoPartage + "</button>" +
         (A.estIllustration(b.photos[0]) ? '<span class="mention-demo">Visuel d’illustration</span>' : "") +
       "</div>" +
       '<div class="carte-corps">' +
@@ -210,6 +211,83 @@
     copier.then(function () { A.message("Lien copié — collez-le à un ami."); }, function () { A.message("Copiez le lien dans la barre d’adresse pour le partager."); });
   };
 
+  /* ---------- Mesure d'audience : file d'attente d'événements (voir stats.js) ----------
+     Les appels à A.evenement sont sans effet tant que la mesure n'est pas activée et acceptée. */
+  A._fileEvt = [];
+  A.evenement = function (nom, params) {
+    try {
+      if (A._stats) A._stats(nom, params || {});
+      else if (A._fileEvt.length < 50) A._fileEvt.push([nom, params || {}]);
+    } catch (e) { /* jamais bloquant */ }
+  };
+
+  /* ---------- Partage d'un bien (v6) ----------
+     Téléphone : feuille de partage du système (WhatsApp, Messages…), avec la photo du bien si elle a pu être préparée.
+     Ordinateur : petite fenêtre WhatsApp / e-mail / copier le lien. */
+  A.icoPartage = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5.500" r="2.600"/><circle cx="6" cy="12" r="2.600"/><circle cx="18" cy="18.500" r="2.600"/><path d="M8.300 10.700l7.400-4.200M8.300 13.300l7.400 4.200"/></svg>';
+  A.lienBien = function (b) { return new URL("bien.html?id=" + encodeURIComponent(b.id), location.href).href; };
+  A.texteBien = function (b) {
+    var d = [];
+    if (b.surface) d.push(A.nombre(b.surface) + " m²"); else if (b.terrain) d.push("terrain " + A.nombre(b.terrain) + " m²");
+    if (b.chambres) d.push(b.chambres + (b.chambres > 1 ? " chambres" : " chambre"));
+    return "Regarde ce bien à " + b.ville + " : " + b.titre + (d.length ? " (" + d.join(", ") + ")" : "") + " — " + A.prixAffiche(b).replace("Prix sur demande", "prix sur demande") + ".";
+  };
+  var imagesPartage = {};
+  function urlImagePartage(b) {
+    var u = b.photos && b.photos[0];
+    if (!u) return "";
+    if (/^assets\/img\/biens\/[\w-]+$/.test(u)) return u + "-800.jpg";
+    if (/^https:\/\/lh3\.googleusercontent\.com\/d\/[\w-]+$/.test(u)) return u + "=w1200";
+    return "";
+  }
+  /* Prépare la photo à l'avance : le partage doit partir immédiatement au toucher (exigence des navigateurs mobiles). Échec = partage sans photo. */
+  A.preparerPartage = function (b) {
+    var u = urlImagePartage(b);
+    if (!u || imagesPartage[b.id] !== undefined || !window.fetch || !window.File) return;
+    imagesPartage[b.id] = null;
+    var c = window.AbortController ? new AbortController() : null, t = setTimeout(function () { if (c) c.abort(); }, 8000);
+    fetch(u, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer", signal: c ? c.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error("photo"); return r.blob(); })
+      .then(function (bl) {
+        clearTimeout(t);
+        if (!/^image\/(jpeg|png|webp)$/.test(bl.type) || bl.size > 4e6) return;
+        imagesPartage[b.id] = new File([bl], "bien-" + b.id + (bl.type === "image/png" ? ".png" : bl.type === "image/webp" ? ".webp" : ".jpg"), { type: bl.type });
+      }).catch(function () { clearTimeout(t); });
+  };
+  A.partager = function (b, avecImage) {
+    var url = A.lienBien(b), texte = A.texteBien(b), fichier = avecImage ? imagesPartage[b.id] : null;
+    var tactile = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    if (navigator.share && tactile) {
+      var d = { title: b.titre };
+      if (fichier && navigator.canShare && navigator.canShare({ files: [fichier] })) { d.files = [fichier]; d.text = texte + "\nDétails et photos : " + url; }
+      else { d.text = texte; d.url = url; }
+      navigator.share(d).then(function () {
+        A.evenement("share", { method: "systeme", content_type: "bien", item_id: b.id });
+      }, function (err) { if (!err || err.name !== "AbortError") A.ouvrirPartage(b, url, texte); });
+      return;
+    }
+    A.ouvrirPartage(b, url, texte);
+  };
+  A.ouvrirPartage = function (b, url, texte) {
+    var corps = texte + "\nDétails et photos : " + url;
+    fermerChoix(); dernierFocus = document.activeElement;
+    var d = document.createElement("div"); d.className = "wa-choix";
+    d.innerHTML = '<div class="wa-choix-boite" role="dialog" aria-modal="true" aria-labelledby="pa-titre"><h2 id="pa-titre">Partager ce bien</h2><p>' + A.esc(b.titre) + "</p>" +
+      '<a class="wa-contact" href="https://wa.me/?text=' + encodeURIComponent(corps) + '" target="_blank" rel="noopener" data-partage-voie="whatsapp" data-bien="' + A.esc(b.id) + '">' + A.icoWA + "<span><strong>WhatsApp</strong><small>Envoyer à un contact ou à un groupe</small></span>" + A.icone("fleche") + "</a>" +
+      '<a class="wa-contact" href="mailto:?subject=' + encodeURIComponent(b.titre + " — Nassiri Real Estate") + "&body=" + encodeURIComponent(corps) + '" data-partage-voie="email" data-bien="' + A.esc(b.id) + '">' + A.icone("courrier") + "<span><strong>E-mail</strong><small>Ouvrir votre messagerie</small></span>" + A.icone("fleche") + "</a>" +
+      '<button type="button" class="wa-contact" data-partage-copier="' + A.esc(url) + '" data-bien="' + A.esc(b.id) + '">' + A.icone("document") + "<span><strong>Copier le lien</strong><small>À coller où vous voulez</small></span>" + A.icone("fleche") + "</button>" +
+      '<button type="button" class="lien-discret" data-wa-fermer>Fermer</button></div>';
+    document.body.appendChild(d); d.querySelector(".wa-contact").focus();
+  };
+  function copierTexte(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return new Promise(function (ok, ko) {
+      var z = document.createElement("textarea"); z.value = t; z.setAttribute("readonly", ""); z.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(z); z.select();
+      try { document.execCommand("copy") ? ok() : ko(); } catch (e) { ko(e); } z.remove();
+    });
+  }
+
   /* ---------- Interactions globales ---------- */
   document.addEventListener("click", function (e) {
     var c = e.target.closest("[data-favori]");
@@ -222,11 +300,27 @@
         el.setAttribute("aria-label", (actif ? "Retirer des favoris" : "Ajouter aux favoris"));
       });
       A.message(actif ? "Ajouté à vos favoris" : "Retiré de vos favoris");
+      A.evenement(actif ? "add_to_wishlist" : "remove_from_wishlist", { item_id: c.dataset.favori });
       /* Statistique anonyme (aucune identité transmise) ; un échec n'empêche rien */
       A.api("favori", { bien_id: c.dataset.favori, retire: !actif }).catch(function () {});
       document.dispatchEvent(new CustomEvent("atlas:favoris"));
       return;
     }
+    var pa = e.target.closest("[data-partager]");
+    if (pa) {
+      e.preventDefault();
+      var bp = (A.biens || []).filter(function (x) { return x.id === pa.dataset.partager; })[0];
+      if (bp) A.partager(bp, pa.hasAttribute("data-avec-image"));
+      return;
+    }
+    var pc = e.target.closest("[data-partage-copier]");
+    if (pc) {
+      copierTexte(pc.dataset.partageCopier).then(function () { A.message("Lien copié"); }, function () { A.message("Copie impossible : sélectionnez le lien dans la barre d’adresse."); });
+      A.evenement("share", { method: "copie", content_type: "bien", item_id: pc.dataset.bien });
+      fermerChoix(); return;
+    }
+    var pv = e.target.closest("[data-partage-voie]");
+    if (pv) A.evenement("share", { method: pv.dataset.partageVoie, content_type: "bien", item_id: pv.dataset.bien });
     var wa = e.target.closest("[data-whatsapp]");
     if (wa) { e.preventDefault(); A.ouvrirWhatsApp(wa.dataset.whatsapp || ""); return; }
     var pa = e.target.closest("[data-partager]");
@@ -271,6 +365,7 @@
     bouton.disabled = true; bouton.textContent = "Envoi en cours…"; dire("");
     return A.api(action, donnees).then(function () {
       form.reset();
+      A.evenement("generate_lead", { form_type: action });
       dire("Merci, votre demande a bien été enregistrée. Nous revenons vers vous rapidement." + (A.demo ? " (Mode démonstration : aucun e-mail réel n’est envoyé.)" : ""), "est-succes");
       return true;
     }, function (err) { dire(err.message, "est-erreur"); return false; })
@@ -304,6 +399,10 @@
     if (/^https?:/.test(location.protocol)) {
       var lc = document.querySelector("[data-canonique]"), og = document.querySelector("[data-canonique-og]");
       if (lc) lc.href = canon; if (og) og.content = canon;
+    }
+    /* Mesure d'audience (v6) : activée seulement si config.js contient un identifiant, jamais en démo ni dans l'Espace Pro */
+    if (A.config.analyticsId && !A.demo && !/admin\.html$/.test(location.pathname)) {
+      var st = document.createElement("script"); st.src = "assets/js/stats.js"; st.defer = true; document.head.appendChild(st);
     }
     A.rendreContacts();
     A.pret = A.charger().then(function (biens) { A.favoris.rafraichir(); A.rendreContacts(); return biens; });

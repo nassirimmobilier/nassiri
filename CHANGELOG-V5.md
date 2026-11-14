@@ -14,6 +14,44 @@ longue durée, loyer mensuel) ou `location-courte` (location saisonnière, prix 
 Un bien peut aussi être marqué **Coup de cœur** (mis en avant dans une section dédiée de
 l'accueil) et/ou **Prix sur demande** (le prix est masqué côté public).
 
+## Mise à jour : lancement actif tant qu'il n'y a aucun bien publié
+
+Sur l'accueil (et uniquement l'accueil — la page « Nos biens » reste honnête et affiche
+« Aucun bien » tant que le catalogue est vide) :
+
+- Tant qu'aucun vrai bien n'est marqué « Coup de cœur », la section correspondante affiche
+  automatiquement un exemple du **style** de bien recherché pour les clients (surtitre
+  « Le style de bien que nous recherchons pour nos clients », étiquette « Style recherché »,
+  mention « Photo d'illustration », pas de prix, bouton « Confier ma recherche » vers la page
+  de recherche). Dès qu'un vrai bien est marqué Coup de cœur, l'affichage bascule
+  automatiquement sur ce vrai bien — rien à changer à la main.
+- Tant qu'aucun vrai bien n'est publié, le bloc « Notre sélection de biens » affiche de la
+  même façon 3 exemples permanents (« Le style de biens que nous recherchons pour nos
+  clients »), avec la même étiquette « Style recherché » / « Photo d'illustration », sans
+  prix ni cœur favoris, et un bouton « Confier ma recherche » vers la page de recherche au
+  lieu d'une fiche de bien. Dès qu'un premier vrai bien est publié, la section redevient
+  automatiquement « Notre sélection de biens » avec les vraies annonces.
+- Ces exemples (`assets/js/exemples.js`) sont indépendants du Google Sheets et du mode
+  démonstration : ils ne disparaissent pas une fois le site connecté à votre vrai classeur,
+  contrairement aux mentions « Mode démonstration » qui, elles, disparaissent bien dès que
+  le site est connecté à un vrai classeur Google Sheets.
+- Correction de cohérence : la photo du Coup de cœur de démonstration montrait une vue mer
+  (incohérente pour Marrakech, qui n'a pas d'accès à la mer) ; le Coup de cœur de démo pointe
+  désormais vers une photo cohérente (villa sans vue mer). Aucune ligne de `apps-script/Code.gs`
+  n'a été touchée par cette mise à jour — votre vrai classeur Google Sheets n'est pas concerné.
+
+### Fichier ajouté
+- `assets/js/exemples.js` — les 3 exemples de style (villa, riad, maison), permanents.
+
+### Fichiers modifiés
+- `index.html` — identifiants ajoutés sur le Coup de cœur et la sélection pour permettre le
+  basculement automatique ; suppression de la phrase « On ne vend pas un bien, on vend une
+  émotion » affichée en dur (l'idée reste la ligne directrice du ton du site, pas un slogan
+  imprimé).
+- `assets/js/accueil.js` — logique de basculement automatique (vrai bien ↔ exemple de style).
+- `assets/js/demo/demo-donnees.js` — en mode démonstration, le Coup de cœur pointe maintenant
+  sur une villa à photo cohérente plutôt que sur la villa à vue mer.
+
 ## Fichiers modifiés
 
 | Fichier | Modifications |

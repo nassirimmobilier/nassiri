@@ -5,10 +5,10 @@
   var jour = function (n) { var d = new Date(Date.now() - n * 864e5); return d.toISOString().slice(0, 16); };
   /* Colonnes : id, statut, titre, type, ville, quartier, prix, surface, terrain, chambres, sdb, exclusivite, aLaUne, joursEcoules, photos, transaction, prixSurDemande, coupDeCoeur */
   var B = [
-    ["NR-0001", "publie", "Villa contemporaine avec piscine", "Villa", "Marrakech", "Palmeraie", 12500000, 520, 2400, 5, 5, 1, 1, 6, ["villa-palmeraie", "appartement-hivernage", "appartement-gueliz"], "vente", 0, 1],
+    ["NR-0001", "publie", "Villa contemporaine avec piscine", "Villa", "Marrakech", "Palmeraie", 12500000, 520, 2400, 5, 5, 1, 1, 6, ["villa-palmeraie", "appartement-hivernage", "appartement-gueliz"], "vente", 0, 0],
     ["NR-0002", "publie", "Appartement panoramique dernier étage", "Appartement", "Marrakech", "Hivernage", 18000, 185, 0, 3, 2, 0, 1, 3, ["appartement-hivernage", "appartement-gueliz"], "location-longue", 0, 0],
     ["NR-0003", "publie", "Riad de caractère avec patio", "Riad", "Marrakech", "Médina", 6800000, 340, 0, 6, 6, 0, 1, 40, ["riad-medina"], "vente", 0, 0],
-    ["NR-0004", "sous-offre", "Villa d'architecte sur golf", "Villa", "Marrakech", "Amelkis", 9900000, 430, 1500, 4, 4, 0, 0, 55, ["villa-amelkis"], "vente", 0, 0],
+    ["NR-0004", "sous-offre", "Villa d'architecte sur golf", "Villa", "Marrakech", "Amelkis", 9900000, 430, 1500, 4, 4, 0, 0, 55, ["villa-amelkis"], "vente", 0, 1],
     ["NR-0005", "publie", "Appartement lumineux proche commerces", "Appartement", "Marrakech", "Guéliz", 6500, 92, 0, 2, 1, 0, 0, 2, ["appartement-gueliz"], "location-longue", 0, 0],
     ["NR-0006", "publie", "Maison familiale avec jardin", "Maison", "Marrakech", "Route de l'Ourika", 3400000, 260, 900, 4, 3, 0, 1, 75, ["maison-ourika"], "vente", 0, 0],
     ["NR-0007", "publie", "Maison moderne en résidence fermée", "Maison", "Marrakech", "Agdal", 2750000, 210, 320, 3, 3, 0, 0, 22, ["maison-agdal"], "vente", 0, 0],

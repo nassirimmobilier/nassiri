@@ -7,7 +7,7 @@
    ========================================================================== */
 window.ATLAS = window.ATLAS || {};
 ATLAS.config = {
-  apiUrl: "https://script.google.com/macros/s/AKfycbxTqnmbJf6dMJx87rbCn56zAgqLTmCS5VXEAfjBQ-2W5oQxyOzAADOijx5VTtGc9ice/exec",
+  apiUrl: "https://script.google.com/macros/s/AKfycbwe-CEaMwcJD17raFUrAA6jPHZ8trybwF6Hf0JTgmNgnwY7pp3ME7caW8Dj-3AWInui/exec",
   /* Contacts WhatsApp affichés tant que le paramètre « whatsapp » de l'Espace Pro est vide.
      Format : "Nom:numéro international sans +", séparés par une virgule. Numéros publics, pas de secret. */
   whatsapp: "Khaled Nassiri:33667407214, Mohamed Nassiri:33641078018",

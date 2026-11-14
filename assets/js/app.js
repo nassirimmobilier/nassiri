@@ -199,6 +199,17 @@
     clearTimeout(minuteur); minuteur = setTimeout(function () { t.classList.remove("est-visible"); }, 3600);
   };
 
+  /* ---------- Partager un bien (comme sur Leboncoin : envoyer le lien à un ami) ---------- */
+  A.partager = function (titre, url) {
+    url = url || location.href;
+    if (navigator.share) {
+      navigator.share({ title: titre || document.title, text: titre ? "Regarde ce bien chez Nassiri Real Estate : " + titre : "", url: url }).catch(function () {});
+      return;
+    }
+    var copier = navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject();
+    copier.then(function () { A.message("Lien copié — collez-le à un ami."); }, function () { A.message("Copiez le lien dans la barre d’adresse pour le partager."); });
+  };
+
   /* ---------- Interactions globales ---------- */
   document.addEventListener("click", function (e) {
     var c = e.target.closest("[data-favori]");
@@ -218,6 +229,8 @@
     }
     var wa = e.target.closest("[data-whatsapp]");
     if (wa) { e.preventDefault(); A.ouvrirWhatsApp(wa.dataset.whatsapp || ""); return; }
+    var pa = e.target.closest("[data-partager]");
+    if (pa) { e.preventDefault(); A.partager(pa.dataset.partager || ""); return; }
     if (e.target.closest("[data-wa-fermer]") || e.target.classList.contains("wa-choix")) { fermerChoix(); return; }
     if (e.target.closest(".wa-contact")) { setTimeout(fermerChoix, 50); }
     if (e.target.closest("[data-menu-ouvrir]")) { basculerMenu(true); return; }

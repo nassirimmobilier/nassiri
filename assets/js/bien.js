@@ -121,7 +121,7 @@
         "</dl>" +
       '</div><aside class="fiche-contact"><div class="fiche-contact-carte">' +
         '<div class="fiche-contact-haut"><div><p class="fiche-contact-prix">' + A.prixAffiche(b) + '</p><p class="carte-ref">Réf. ' + A.esc(b.id) + "</p></div>" +
-        '<button class="coeur coeur-fiche' + (fav ? " est-actif" : "") + '" type="button" data-favori="' + A.esc(b.id) + '" aria-pressed="' + fav + '" aria-label="' + (fav ? "Retirer des favoris" : "Ajouter aux favoris") + '">' + A.icone("coeur") + "</button></div>" +
+        '<div class="fiche-contact-boutons"><button class="coeur coeur-fiche' + (fav ? " est-actif" : "") + '" type="button" data-favori="' + A.esc(b.id) + '" aria-pressed="' + fav + '" aria-label="' + (fav ? "Retirer des favoris" : "Ajouter aux favoris") + '">' + A.icone("coeur") + '</button><button class="coeur coeur-fiche" type="button" data-partager="' + A.esc(b.titre) + '" aria-label="Partager ce bien">' + A.icone("partage") + "</button></div></div>" +
         formulaires(b) +
         '<a class="btn btn-wa btn-whatsapp" href="#" data-whatsapp="Bonjour, je suis intéressé(e) par le bien ' + A.esc(b.id) + " — " + A.esc(b.titre) + '.">' + A.icoWA + " Échanger sur WhatsApp</a>" +
       "</div></aside></div>" +

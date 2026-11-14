@@ -507,6 +507,7 @@ ul { padding: 0; list-style: none; }
 .fiche-contact-haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .fiche-contact-prix { font-family: var(--serif); font-size: 28px; color: var(--vert); line-height: 1.1; }
 .coeur-fiche { position: static; color: var(--vert); filter: none; border: 1px solid var(--trait); border-radius: 50%; flex: none; }
+.fiche-contact-boutons { display: flex; gap: 8px; flex: none; }
 .onglets { display: grid; grid-template-columns: 1fr 1fr; background: var(--ivoire); border-radius: 10px; padding: 4px; margin: 18px 0 16px; }
 .onglets button { min-height: 44px; border-radius: 8px; font-size: 15px; color: var(--gris); transition: background-color .2s ease, color .2s ease; }
 .onglets button.est-actif { background: #fff; color: var(--vert); font-weight: 500; box-shadow: 0 1px 4px rgba(0, 0, 0, .08); }

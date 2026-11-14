@@ -93,9 +93,22 @@
       plus.hidden = affiches >= l.length;
       plus.querySelector("span").textContent = "Afficher plus de biens (" + Math.max(l.length - affiches, 0) + ")";
       vide.hidden = l.length > 0;
-      vide.querySelector("p").textContent = etat.favoris && A.favoris.lire().length === 0
-        ? "Vous n’avez pas encore de favoris. Touchez le cœur d’un bien pour l’enregistrer sur cet appareil."
-        : "Aucun bien ne correspond à ces critères pour le moment. Élargissez votre recherche ou réinitialisez les filtres.";
+      if (!vide.hidden) {
+        var titreVide = vide.querySelector("#aucun-resultat-titre"), texteVide = vide.querySelector("#aucun-resultat-texte"),
+          boutonReinit = vide.querySelector("[data-reinitialiser]"), lienStyle = vide.querySelector("#aucun-resultat-style"),
+          portefeuilleVide = A.disponibles().length === 0;
+        if (etat.favoris && A.favoris.lire().length === 0) {
+          titreVide.textContent = "Aucun favori"; texteVide.textContent = "Vous n’avez pas encore de favoris. Touchez le cœur d’un bien pour l’enregistrer sur cet appareil.";
+          boutonReinit.hidden = true; lienStyle.hidden = true;
+        } else if (portefeuilleVide) {
+          titreVide.textContent = "Notre portefeuille est en cours de constitution";
+          texteVide.textContent = "Nous sélectionnons actuellement les premiers biens à vous présenter. En attendant, confiez-nous votre recherche : nous vous recontactons dès qu’un bien correspond.";
+          boutonReinit.hidden = true; lienStyle.hidden = false;
+        } else {
+          titreVide.textContent = "Aucun bien à afficher"; texteVide.textContent = "Aucun bien ne correspond à ces critères pour le moment. Élargissez votre recherche ou réinitialisez les filtres.";
+          boutonReinit.hidden = false; lienStyle.hidden = true;
+        }
+      }
       var libTransaction = { vente: "à vendre", location: "à louer" }[etat.transaction] || "à vendre et à louer";
       titre.textContent = etat.favoris ? "Mes favoris" : "Nos biens " + libTransaction;
       document.title = (etat.favoris ? "Mes favoris" : "Biens " + libTransaction + (etat.ville ? " à " + etat.ville : " au Maroc")) + " — Nassiri Real Estate";

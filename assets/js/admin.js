@@ -8,6 +8,7 @@
   var racine, D = null;
   var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "" };
   var LIB_STATUT = { brouillon: "Brouillon", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé" };
+  var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
   var ICO_ALERTE = { contact: "courrier", visite: "calendrier", confier: "cle" };
 
@@ -110,14 +111,15 @@
     return '<div class="a-outils"><div class="a-puces">' + puce("", "Tous") + puce("publie", "Publiés") + puce("brouillon", "Brouillons") + puce("sous-offre", "Sous offre") + puce("vendu", "Vendus") + puce("archive", "Archivés") + "</div>" +
       '<input class="a-recherche" type="search" placeholder="Rechercher un bien…" value="' + e(etat.recherche) + '" data-recherche aria-label="Rechercher un bien"></div>' +
       (l.length ? '<div class="a-biens">' + l.map(function (b) {
-        var ph = photosDe(b.id), une = b.a_la_une === "oui";
+        var ph = photosDe(b.id), une = b.a_la_une === "oui", coeur = b.coup_de_coeur === "oui";
         return '<article class="a-bien"><button class="a-bien-photo" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '" aria-label="Modifier ' + e(b.titre) + '">' + A.photo(ph[0] && ph[0].url, "160px", "") + "</button>" +
-          '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + "</div>" +
+          '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + ((b.transaction === "location-longue" || b.transaction === "location-courte") ? '<span class="a-statut a-statut-une">' + (LIB_TRANSACTION[b.transaction] || "Location") + "</span>" : "") + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (coeur ? '<span class="a-statut a-statut-une">' + ico("coeur") + " Coup de cœur</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + "</div>" +
           "<h3>" + e(b.titre) + "</h3><p>" + e(b.type) + " · " + e(b.ville) + (b.quartier ? " · " + e(b.quartier) : "") + " · Réf. " + e(b.id) + "</p>" +
-          '<p class="a-bien-prix">' + (n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p></div>" +
+          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p></div>" +
           '<div class="a-bien-actions"><button class="btn btn-vert" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '">' + ico("crayon") + " Modifier</button>" +
           '<label class="a-select"><span class="sr">Statut de ' + e(b.titre) + '</span><select data-action-change="statut-bien" data-id="' + e(b.id) + '">' + D.listes.statutsBien.map(function (s) { return option(s, (s === b.statut ? "Statut : " : "Passer en : ") + LIB_STATUT[s], b.statut); }).join("") + "</select></label>" +
           '<div class="a-bien-mini"><button class="a-icone' + (une ? " est-actif" : "") + '" data-action="une" data-id="' + e(b.id) + '" aria-pressed="' + une + '" title="Mettre à la une">' + ico("etoile") + "</button>" +
+          '<button class="a-icone' + (coeur ? " est-actif" : "") + '" data-action="coeur" data-id="' + e(b.id) + '" aria-pressed="' + coeur + '" title="Coup de cœur">' + ico("coeur") + "</button>" +
           (b.statut === "publie" || b.statut === "sous-offre" ? '<a class="a-icone" href="bien.html?id=' + encodeURIComponent(b.id) + '" target="_blank" rel="noopener" title="Voir sur le site">' + ico("oeil") + "</a>" : "") +
           '<button class="a-icone a-icone-danger" data-action="supprimer-bien" data-id="' + e(b.id) + '" title="Supprimer">' + ico("corbeille") + "</button></div></div></article>";
       }).join("") + "</div>" : '<p class="a-vide a-bloc">Aucun bien dans cette liste.</p>');
@@ -133,7 +135,8 @@
       '<section class="a-bloc"><h2>L’essentiel</h2><div class="a-grille">' +
         champ("titre", "Titre de l’annonce *", b.titre, 'placeholder="ex. Villa contemporaine avec piscine" required', "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type">' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
-        champ("prix", "Prix (DH)", b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') +
+        '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction">' + (D.listes.transactionsBien || ["vente", "location-longue", "location-courte"]).map(function (t) { return option(t, LIB_TRANSACTION[t] || t, b.transaction || "vente"); }).join("") + "</select></div>" +
+        champ("prix", "Prix (DH)" + ((b.transaction === "location-longue") ? " — par mois" : (b.transaction === "location-courte") ? " — par nuit" : ""), b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') +
         champ("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + v + '">'; }).join("") + "</datalist>" +
         champ("quartier", "Quartier (affiché au public)", b.quartier, 'placeholder="ex. Palmeraie"') +
       '</div></section>' +
@@ -153,7 +156,9 @@
       '<section class="a-bloc"><h2>Description</h2><label class="sr" for="f-description">Description</label><textarea id="f-description" name="description" rows="8" placeholder="Présentez le bien : volumes, prestations, environnement…">' + e(b.description || "") + "</textarea></section>" +
       '<section class="a-bloc"><h2>Situation juridique</h2><div class="a-grille">' + champ("juridique", "Situation (affichée au public si renseignée)", b.juridique, 'placeholder="ex. Titré, melkia, VNA…"', "plein") + "</div>" +
         bascule("juridique_verifie", "Vérifiée par l’agence", "N’activez que si vous avez contrôlé les documents.") + "</section>" +
-      '<section class="a-bloc"><h2>Mise en avant</h2>' + bascule("a_la_une", "À la une", "Apparaît en premier dans « Notre sélection » sur l’accueil.") + bascule("exclusivite", "Exclusivité", "Affiche le badge « Exclusivité ».") + "</section>" +
+      '<section class="a-bloc"><h2>Mise en avant</h2>' + bascule("a_la_une", "À la une", "Apparaît en premier dans « Notre sélection » sur l’accueil.") + bascule("exclusivite", "Exclusivité", "Affiche le badge « Exclusivité ».") +
+        bascule("coup_de_coeur", "Coup de cœur", "Un seul bien à la fois : il est mis en avant dans la section « Coup de cœur » de l’accueil.") +
+        bascule("prix_sur_demande", "Prix sur demande", "Masque le prix sur le site public et affiche « Prix sur demande ».") + "</section>" +
       '<section class="a-bloc a-bloc-prive"><h2>' + ico("bouclier") + ' Informations privées</h2><p class="a-aide">Jamais affichées sur le site public.</p><div class="a-grille">' +
         champ("adresse_privee", "Adresse exacte / propriétaire", b.adresse_privee, "", "plein") + '<div class="plein"><label for="f-notes">Notes internes</label><textarea id="f-notes" name="notes_privees" rows="3">' + e(b.notes_privees || "") + "</textarea></div></div></section>" +
       '<div class="a-barre"><div class="a-barre-statut">' + badgeStatut(b.statut || "brouillon") + (nouveau ? "" : "<small>Réf. " + e(b.id) + " · modifié le " + e(A.dateFr(b.date_maj, true)) + "</small>") + "</div>" +
@@ -164,8 +169,8 @@
   function lireFormBien() {
     var f = document.getElementById("form-bien"); if (!f || !etat.edition) return;
     var b = etat.edition;
-    ["titre", "type", "prix", "ville", "quartier", "surface", "terrain", "chambres", "sdb", "description", "juridique", "adresse_privee", "notes_privees"].forEach(function (k) { b[k] = f.elements[k].value.trim(); });
-    ["juridique_verifie", "a_la_une", "exclusivite"].forEach(function (k) { b[k] = f.elements[k].checked ? "oui" : "non"; });
+    ["titre", "type", "transaction", "prix", "ville", "quartier", "surface", "terrain", "chambres", "sdb", "description", "juridique", "adresse_privee", "notes_privees"].forEach(function (k) { b[k] = f.elements[k].value.trim(); });
+    ["juridique_verifie", "a_la_une", "exclusivite", "coup_de_coeur", "prix_sur_demande"].forEach(function (k) { b[k] = f.elements[k].checked ? "oui" : "non"; });
     b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
   }
   function enregistrerBien(publier, silencieux) {
@@ -303,6 +308,7 @@
     "sous-vue": function (b) { etat.sousVue = b.dataset.v; rendre(); },
     deconnexion: function () { A.api("deconnexion").catch(function () {}).then(function () { A.jeton.ecrire(""); D = null; etat.vue = "tableau"; rendre(); }); },
     une: function (b) { var x = bien(b.dataset.id); faire("bienEnregistrer", { bien: { id: x.id, a_la_une: x.a_la_une === "oui" ? "non" : "oui" } }, x.a_la_une === "oui" ? "Retiré de la une." : "Mis à la une.").then(rendre); },
+    coeur: function (b) { var x = bien(b.dataset.id); faire("bienEnregistrer", { bien: { id: x.id, coup_de_coeur: x.coup_de_coeur === "oui" ? "non" : "oui" } }, x.coup_de_coeur === "oui" ? "Retiré des coups de cœur." : "Mis en coup de cœur.").then(rendre); },
     "supprimer-bien": function (b) {
       var x = bien(b.dataset.id);
       confirmer("Supprimer ce bien ?", "« " + x.titre + " » et ses photos seront supprimés définitivement. Pour le garder sans l’afficher, choisissez plutôt « Archivé ».", "Supprimer définitivement")

@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   var A = window.ATLAS;
-  var CHAMPS = ["ville", "type", "bmin", "bmax", "surface", "chambres", "tri", "favoris"];
+  var CHAMPS = ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres", "tri", "favoris"];
   var affiches = 0;
 
   function lireUrl() {
@@ -27,9 +27,18 @@
       if (e.favoris && favs.indexOf(b.id) === -1) return false;
       if (e.ville && b.ville !== e.ville) return false;
       if (e.type && b.type !== e.type) return false;
+      if (e.transaction) {
+        var tb = b.transaction || "vente";
+        if (e.transaction === "location") { if (tb !== "location-longue" && tb !== "location-courte") return false; }
+        else if (tb !== e.transaction) return false;
+      }
       if (e.bmin && b.prix < +e.bmin) return false;
       if (e.bmax && b.prix > +e.bmax) return false;
-      if (e.surface && Math.max(b.surface, b.type === "Terrain" ? b.terrain : 0) < +e.surface) return false;
+      if (e.surface) {
+        var tranche = e.surface.split("-"), sMin = +tranche[0] || 0, sMax = tranche[1] ? +tranche[1] : Infinity;
+        var s = Math.max(b.surface, b.type === "Terrain" ? b.terrain : 0);
+        if (s < sMin || s > sMax) return false;
+      }
       if (e.chambres && b.chambres < +e.chambres) return false;
       return true;
     });
@@ -67,6 +76,10 @@
         var actif = b.dataset.type === etat.type;
         b.classList.toggle("est-actif", actif); b.setAttribute("aria-pressed", actif);
       });
+      document.querySelectorAll("[data-transaction]").forEach(function (b) {
+        var actif = b.dataset.transaction === etat.transaction;
+        b.classList.toggle("est-actif", actif); b.setAttribute("aria-pressed", actif);
+      });
       var f = document.getElementById("filtre-favoris");
       f.classList.toggle("est-actif", !!etat.favoris); f.setAttribute("aria-pressed", !!etat.favoris);
     }
@@ -83,13 +96,14 @@
       vide.querySelector("p").textContent = etat.favoris && A.favoris.lire().length === 0
         ? "Vous n’avez pas encore de favoris. Touchez le cœur d’un bien pour l’enregistrer sur cet appareil."
         : "Aucun bien ne correspond à ces critères pour le moment. Élargissez votre recherche ou réinitialisez les filtres.";
-      titre.textContent = etat.favoris ? "Mes favoris" : "Nos biens à vendre";
-      document.title = (etat.favoris ? "Mes favoris" : "Biens à vendre" + (etat.ville ? " à " + etat.ville : " au Maroc")) + " — Nassiri Real Estate";
-      var actifs = ["ville", "type", "bmin", "bmax", "surface", "chambres", "favoris"].filter(function (c) { return etat[c]; }).length;
+      var libTransaction = { vente: "à vendre", location: "à louer" }[etat.transaction] || "à vendre et à louer";
+      titre.textContent = etat.favoris ? "Mes favoris" : "Nos biens " + libTransaction;
+      document.title = (etat.favoris ? "Mes favoris" : "Biens " + libTransaction + (etat.ville ? " à " + etat.ville : " au Maroc")) + " — Nassiri Real Estate";
+      var actifs = ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres", "favoris"].filter(function (c) { return etat[c]; }).length;
       document.querySelectorAll("[data-filtres-actifs]").forEach(function (el) { el.textContent = actifs ? " (" + actifs + ")" : ""; });
       /* Lien vers « Confiez-nous votre recherche » avec les critères déjà choisis (aucune donnée personnelle) */
       var q = new URLSearchParams();
-      ["ville", "type", "bmin", "bmax", "surface", "chambres"].forEach(function (c) { if (etat[c]) q.set(c, etat[c]); });
+      ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres"].forEach(function (c) { if (etat[c]) q.set(c, etat[c]); });
       document.querySelectorAll("[data-lien-recherche]").forEach(function (a) { a.href = "recherche.html" + (q.toString() ? "?" + q.toString() : ""); });
       ecrireUrl(etat);
     }
@@ -107,9 +121,11 @@
     document.addEventListener("click", function (e) {
       var t = e.target.closest("[data-type]");
       if (t) { etat.type = t.dataset.type; versFormulaire(); rendre(true); return; }
+      var tr = e.target.closest("[data-transaction]");
+      if (tr) { etat.transaction = tr.dataset.transaction; versFormulaire(); rendre(true); return; }
       if (e.target.closest("#filtre-favoris")) { etat.favoris = etat.favoris ? "" : "1"; versFormulaire(); rendre(true); return; }
       if (e.target.closest("[data-reinitialiser]")) {
-        etat = { ville: "", type: "", bmin: "", bmax: "", surface: "", chambres: "", tri: "recent", favoris: "" };
+        etat = { ville: "", type: "", transaction: "", bmin: "", bmax: "", surface: "", chambres: "", tri: "recent", favoris: "" };
         versFormulaire(); rendre(true); return;
       }
       if (e.target.closest("#afficher-plus")) { affiches += A.config.parPage; rendre(false); return; }

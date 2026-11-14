@@ -1,5 +1,3 @@
-/* COPIE AUTOMATIQUE de apps-script/Code.gs pour le mode démonstration — ne pas modifier ici. */
-window.ATLAS_DEMO.serveur = (function (SpreadsheetApp, PropertiesService, CacheService, LockService, ContentService, MailApp, DriveApp, Utilities, URL_PHOTO_DEMO) {
 /**
  * NASSIRI REAL ESTATE — API Google Apps Script
  * ---------------------------------------------------------------------------
@@ -23,7 +21,8 @@ var MAX_PHOTOS_PROPOSITION = 5;
 var ONGLETS = {
   BIENS: ['id', 'statut', 'titre', 'type', 'ville', 'quartier', 'prix', 'surface', 'terrain', 'chambres', 'sdb',
     'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une',
-    'date_creation', 'date_publication', 'date_maj', 'vues', 'adresse_privee', 'notes_privees'],
+    'date_creation', 'date_publication', 'date_maj', 'vues', 'adresse_privee', 'notes_privees',
+    'transaction', 'prix_sur_demande', 'coup_de_coeur'],
   PHOTOS: ['id', 'bien_id', 'url', 'drive_id', 'ordre'],
   PROSPECTS: ['id', 'date_creation', 'nom', 'telephone', 'email', 'budget', 'type_recherche', 'ville_recherche',
     'statut', 'notes', 'date_relance', 'source', 'date_maj'],
@@ -36,6 +35,7 @@ var ONGLETS = {
   PARAMETRES: ['cle', 'valeur']
 };
 var STATUTS_BIEN = ['brouillon', 'publie', 'sous-offre', 'vendu', 'archive'];
+var TRANSACTIONS_BIEN = ['vente', 'location-longue', 'location-courte'];
 var STATUTS_PROSPECT = ['Nouveau', 'Contacté', 'Qualifié', 'Visite', 'Offre', 'Vente'];
 var STATUTS_VISITE = ['À confirmer', 'Confirmée', 'Effectuée', 'Annulée'];
 var STATUTS_PROPOSITION = ['Nouveau', 'À l’étude', 'Accepté', 'Refusé'];
@@ -43,7 +43,8 @@ var PARAMETRES_PUBLICS = ['whatsapp', 'telephone', 'email_contact'];
 var PARAMETRES_MODIFIABLES = ['email_alertes', 'whatsapp', 'telephone', 'email_contact'];
 /* Champs d'un bien visibles du public (jamais adresse_privee ni notes_privees) */
 var CHAMPS_PUBLICS = ['id', 'statut', 'titre', 'type', 'ville', 'quartier', 'prix', 'surface', 'terrain', 'chambres',
-  'sdb', 'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une', 'date_publication'];
+  'sdb', 'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une', 'date_publication',
+  'transaction', 'prix_sur_demande', 'coup_de_coeur'];
 
 /* ============================== MENU DU CLASSEUR ============================== */
 
@@ -345,9 +346,10 @@ function bienDepuis_(d) {
   var b = {};
   ['titre', 'type', 'ville', 'quartier', 'description', 'juridique', 'adresse_privee', 'notes_privees'].forEach(function (k) { if (d[k] !== undefined) b[k] = propre_(d[k], 6000); });
   ['prix', 'surface', 'terrain', 'chambres', 'sdb'].forEach(function (k) { if (d[k] !== undefined) b[k] = nombre_(d[k]); });
-  ['juridique_verifie', 'exclusivite', 'a_la_une'].forEach(function (k) { if (d[k] !== undefined) b[k] = oui_(d[k]); });
+  ['juridique_verifie', 'exclusivite', 'a_la_une', 'prix_sur_demande', 'coup_de_coeur'].forEach(function (k) { if (d[k] !== undefined) b[k] = oui_(d[k]); });
   if (d.equipements !== undefined) b.equipements = (d.equipements instanceof Array ? d.equipements : String(d.equipements).split('|')).map(function (x) { return propre_(x, 60); }).filter(String).join('|');
   if (d.statut !== undefined) { if (STATUTS_BIEN.indexOf(d.statut) === -1) throw erreur_('Statut inconnu.'); b.statut = d.statut; }
+  if (d.transaction !== undefined) { if (TRANSACTIONS_BIEN.indexOf(d.transaction) === -1) throw erreur_('Type de transaction inconnu.'); b.transaction = d.transaction; }
   return b;
 }
 function prochainIdBien_() {
@@ -365,7 +367,7 @@ var ADMIN = {
     var param = {}; lire_('PARAMETRES').forEach(function (p) { param[p.cle] = p.valeur; });
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
-      listes: { statutsBien: STATUTS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION } };
+      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION } };
   },
 
   bienEnregistrer: function (d) {
@@ -373,7 +375,7 @@ var ADMIN = {
     b.date_maj = maintenant_();
     if ((b.statut === 'publie') && !(ancien && ancien.date_publication)) b.date_publication = maintenant_();
     if (ancien) return { bien: sans_(modifier_('BIENS', id, b)) };
-    b.id = prochainIdBien_(); b.statut = b.statut || 'brouillon'; b.date_creation = b.date_maj; b.vues = '0';
+    b.id = prochainIdBien_(); b.statut = b.statut || 'brouillon'; b.transaction = b.transaction || 'vente'; b.date_creation = b.date_maj; b.vues = '0';
     if (!b.titre) b.titre = 'Nouveau bien';
     return { bien: sans_(ajouter_('BIENS', b)) };
   },
@@ -454,6 +456,3 @@ var ADMIN = {
     return {};
   }
 };
-
-return { doPost: doPost, doGet: doGet, installer: installer_, definirMotDePasse: definirMotDePasse_, ONGLETS: ONGLETS };
-})(ATLAS_DEMO.google.SpreadsheetApp, ATLAS_DEMO.google.PropertiesService, ATLAS_DEMO.google.CacheService, ATLAS_DEMO.google.LockService, ATLAS_DEMO.google.ContentService, ATLAS_DEMO.google.MailApp, ATLAS_DEMO.google.DriveApp, ATLAS_DEMO.google.Utilities, ATLAS_DEMO.google.URL_PHOTO_DEMO);

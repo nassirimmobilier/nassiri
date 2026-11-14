@@ -726,3 +726,32 @@ input.sr:focus-visible + .vignettes, .depot:focus-within { outline: 2px solid va
   .vendre > .formulaire { order: 1; }
   .vendre-texte > .etapes { order: 2; margin-top: 8px; } .vendre-texte > .contacts-directs { order: 3; margin-top: 0; }
 }
+
+/* ==========================================================================
+   VERSION 5 — vente / location, coup de cœur
+   ========================================================================== */
+:root { --coeur: #9B3A4D; }
+.badge-location { background: var(--champagne-fonce); color: #fff; }
+.badge-coeur { background: var(--coeur); color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+.badge-coeur .ico { width: 14px; height: 14px; fill: currentColor; stroke: none; }
+
+/* ---------- Filtre Acheter / Louer ---------- */
+.filtre-transaction { display: inline-flex; background: var(--ivoire); border-radius: 999px; padding: 4px; gap: 2px; margin-bottom: 18px; }
+.filtre-transaction button { min-height: 42px; padding: 0 22px; border-radius: 999px; font-size: 15px; font-weight: 500; color: var(--gris); transition: background-color .2s ease, color .2s ease; }
+.filtre-transaction button.est-actif { background: var(--vert); color: #fff; }
+
+/* ---------- Section « coup de cœur » (accueil) ---------- */
+.section-coeur { background: var(--anthracite); color: #fff; position: relative; overflow: hidden; }
+.coeur-duo { display: grid; grid-template-columns: minmax(0,6fr) minmax(0,5fr); gap: clamp(28px, 5vw, 80px); align-items: center; }
+.coeur-visuel { position: relative; border-radius: var(--rayon); overflow: hidden; aspect-ratio: 4/3; box-shadow: var(--ombre); }
+.coeur-visuel picture, .coeur-visuel img { width: 100%; height: 100%; object-fit: cover; }
+.coeur-etiquette { position: absolute; top: 18px; left: 18px; background: var(--coeur); color: #fff; padding: 8px 18px; border-radius: 999px; font-size: 13.5px; letter-spacing: .06em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+.coeur-etiquette .ico { width: 15px; height: 15px; fill: currentColor; stroke: none; }
+.coeur-texte .surtitre { color: var(--champagne-clair); }
+.coeur-texte h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 2.6vw, 44px); margin-top: 10px; line-height: 1.12; }
+.coeur-texte .coeur-lieu { color: rgba(255,255,255,.7); font-size: 15px; margin-top: 8px; letter-spacing: .04em; text-transform: uppercase; }
+.coeur-texte .coeur-accroche { font-family: var(--serif); font-style: italic; font-size: clamp(19px, 1.5vw, 23px); color: var(--champagne-clair); margin-top: 18px; line-height: 1.4; }
+.coeur-texte .coeur-desc { color: rgba(255,255,255,.82); font-weight: 300; margin-top: 14px; max-width: 34em; }
+.coeur-texte .coeur-prix { font-family: var(--serif); font-size: 26px; color: #fff; margin-top: 20px; }
+.coeur-texte .coeur-boutons { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 24px; }
+@media (max-width: 900px) { .coeur-duo { grid-template-columns: 1fr; } }

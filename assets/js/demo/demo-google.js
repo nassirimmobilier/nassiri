@@ -113,6 +113,11 @@
     URL_PHOTO_DEMO: function (id) { return "demo-photo:" + id; }
   };
 
+  /* Le vrai code serveur (code-serveur.js, copie exacte de Code.gs) s'attend à trouver ces
+     services Google en tant que variables globales, comme dans l'environnement Apps Script réel. */
+  ["SpreadsheetApp", "PropertiesService", "CacheService", "LockService", "ContentService", "MailApp", "DriveApp", "Utilities"]
+    .forEach(function (k) { window[k] = G[k]; });
+
   window.ATLAS_DEMO = {
     google: G,
     photo: function (url) { return lire("photo_" + url.slice(11), "") || ""; },

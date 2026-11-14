@@ -49,19 +49,22 @@
   <picture class="bandeau-photo"><source type="image/webp" srcset="assets/img/hero-768.webp 768w, assets/img/hero-1280.webp 1280w, assets/img/hero-1920.webp 1920w" sizes="100vw"><img src="assets/img/hero-1920.jpg" srcset="assets/img/hero-768.jpg 768w, assets/img/hero-1280.jpg 1280w, assets/img/hero-1920.jpg 1920w" sizes="100vw" width="1920" height="1080" alt="" fetchpriority="high"></picture>
   <div class="bandeau-texte">
     <nav class="fil" aria-label="Fil d’Ariane"><a href="index.html">Accueil</a><span aria-hidden="true">/</span><span>Biens</span></nav>
-    <h1 id="catalogue-titre">Nos biens à vendre</h1>
-    <p class="bandeau-sous">Villas, appartements, riads, maisons et terrains, pour tous les projets.</p>
+    <h1 id="catalogue-titre">Nos biens à vendre et à louer</h1>
+    <p class="bandeau-sous">Villas, appartements, riads, maisons et terrains, à l’achat comme à la location.</p>
   </div>
 </section>
 
 <div class="filtres-zone">
   <form class="filtres" id="filtres" role="search" aria-label="Filtrer les biens">
     <button class="filtres-basculer" type="button" data-filtres-basculer aria-expanded="false"><span><svg class="ico " aria-hidden="true"><use href="#i-filtre"/></svg></span><span style="flex:1;text-align:left;padding-left:10px">Filtrer les biens<span data-filtres-actifs></span></span><svg class="ico " aria-hidden="true"><use href="#i-chevron"/></svg></button>
+    <div class="filtre-transaction" role="group" aria-label="Acheter ou louer">
+      <button type="button" data-transaction="" aria-pressed="true" class="est-actif">Tous les biens</button><button type="button" data-transaction="vente" aria-pressed="false">Acheter</button><button type="button" data-transaction="location" aria-pressed="false">Louer</button>
+    </div>
     <div class="filtres-ligne">
       <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-lieu"/></svg><div class="champ-texte"><label for="f-ville">Localisation</label><select id="f-ville" name="ville"></select></div></div>
       <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-budget"/></svg><div class="champ-texte"><label for="f-bmin">Budget minimum</label><select id="f-bmin" name="bmin"><option value="">Sans minimum</option><option value="1000000">1 000 000 DH</option><option value="1500000">1 500 000 DH</option><option value="3000000">3 000 000 DH</option><option value="6000000">6 000 000 DH</option><option value="10000000">10 000 000 DH</option></select></div></div>
       <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-budget"/></svg><div class="champ-texte"><label for="f-bmax">Budget maximum</label><select id="f-bmax" name="bmax"><option value="">Sans maximum</option><option value="1500000">1 500 000 DH</option><option value="3000000">3 000 000 DH</option><option value="6000000">6 000 000 DH</option><option value="10000000">10 000 000 DH</option><option value="20000000">20 000 000 DH</option></select></div></div>
-      <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-surface"/></svg><div class="champ-texte"><label for="f-surface">Surface</label><select id="f-surface" name="surface"><option value="">Toutes surfaces</option><option value="50">50 m² et plus</option><option value="100">100 m² et plus</option><option value="200">200 m² et plus</option><option value="300">300 m² et plus</option><option value="500">500 m² et plus</option></select></div></div>
+      <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-surface"/></svg><div class="champ-texte"><label for="f-surface">Surface</label><select id="f-surface" name="surface"><option value="">Toutes surfaces</option><option value="0-50">Moins de 50 m²</option><option value="50-100">50 à 100 m²</option><option value="100-200">100 à 200 m²</option><option value="200-300">200 à 300 m²</option><option value="300-500">300 à 500 m²</option><option value="500-">500 m² et plus</option></select></div></div>
       <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-lit"/></svg><div class="champ-texte"><label for="f-chambres">Chambres</label><select id="f-chambres" name="chambres"><option value="">Indifférent</option><option value="1">1 et plus</option><option value="2">2 et plus</option><option value="3">3 et plus</option><option value="4">4 et plus</option><option value="5">5 et plus</option></select></div></div>
     </div>
     <div class="filtres-types" role="group" aria-label="Type de bien">

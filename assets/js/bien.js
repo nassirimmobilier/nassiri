@@ -79,6 +79,8 @@
   function rendre(b) {
     photos = b.photos.slice();
     var fav = A.favoris.contient(b.id), badges = '<span class="badge badge-type">' + A.esc(b.type) + "</span>";
+    if (b.transaction === "location-longue" || b.transaction === "location-courte") badges += '<span class="badge badge-location">' + A.esc(A.libelleTransaction(b)) + "</span>";
+    if (b.coup_de_coeur === "oui") badges += '<span class="badge badge-coeur">' + A.icone("coeur") + " Coup de cœur</span>";
     if (b.statut === "sous-offre") badges += '<span class="badge badge-offre">Sous offre</span>';
     else if (b.exclusivite) badges += '<span class="badge badge-or">Exclusivité</span>';
     else if (A.estNouveau(b)) badges += '<span class="badge badge-or">Nouveau</span>';
@@ -89,12 +91,13 @@
     document.getElementById("page-titre").textContent = b.titre;
     document.getElementById("page-sous").textContent = b.ville + " · " + b.quartier;
     document.getElementById("fil-ref").textContent = "Réf. " + b.id;
-    document.title = b.titre + " — " + b.type + " à vendre à " + b.ville + " (" + b.quartier + ") — Nassiri Real Estate";
+    var verbe = (b.transaction === "location-longue" || b.transaction === "location-courte") ? "à louer" : "à vendre";
+    document.title = b.titre + " — " + b.type + " " + verbe + " à " + b.ville + " (" + b.quartier + ") — Nassiri Real Estate";
     var md = document.querySelector('meta[name="description"]');
-    if (md) md.content = b.type + " à vendre à " + b.ville + ", " + b.quartier + " : " + (b.surface ? b.surface + " m², " : "") + (b.chambres ? b.chambres + " chambres, " : "") + A.prix(b.prix) + ". Réf. " + b.id + ".";
+    if (md) md.content = b.type + " " + verbe + " à " + b.ville + ", " + b.quartier + " : " + (b.surface ? b.surface + " m², " : "") + (b.chambres ? b.chambres + " chambres, " : "") + A.prixAffiche(b) + ". Réf. " + b.id + ".";
     var ld = document.createElement("script"); ld.type = "application/ld+json";
     ld.textContent = JSON.stringify({ "@context": "https://schema.org", "@type": "RealEstateListing", name: b.titre, url: location.href, datePosted: b.date || undefined,
-      description: b.description.slice(0, 300), offers: { "@type": "Offer", price: b.prix, priceCurrency: "MAD" },
+      description: b.description.slice(0, 300), offers: { "@type": "Offer", price: b.prix, priceCurrency: "MAD", businessFunction: verbe === "à louer" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell" },
       about: { "@type": "Residence", address: { "@type": "PostalAddress", addressLocality: b.ville, addressRegion: b.quartier, addressCountry: "MA" } } });
     document.head.appendChild(ld);
 
@@ -105,8 +108,8 @@
         '<div class="fiche-badges">' + badges + "</div>" +
         '<p class="carte-lieu">' + A.esc(b.ville) + " · " + A.esc(b.quartier) + "</p>" +
         '<h2 class="fiche-titre">' + A.esc(b.titre) + "</h2>" +
-        '<p class="fiche-prix">' + A.prix(b.prix) + "</p>" +
-        (b.prix && (b.surface || b.terrain) ? '<p class="fiche-prix-m2">soit ' + A.nombre(Math.round(b.prix / (b.surface || b.terrain))) + "\u00a0DH/m² " + (b.surface ? "habitable" : "de terrain") + "</p>" : "") +
+        '<p class="fiche-prix">' + A.prixAffiche(b) + "</p>" +
+        ((b.transaction || "vente") === "vente" && b.prix && (b.surface || b.terrain) ? '<p class="fiche-prix-m2">soit ' + A.nombre(Math.round(b.prix / (b.surface || b.terrain))) + "\u00a0DH/m² " + (b.surface ? "habitable" : "de terrain") + "</p>" : "") +
         '<ul class="fiche-carac">' + carac("surface", b.surface ? A.nombre(b.surface) + " m²" : "", "Surface habitable") + carac("boussole", b.terrain ? A.nombre(b.terrain) + " m²" : "", "Terrain") +
           carac("lit", b.chambres, b.chambres > 1 ? "Chambres" : "Chambre") + carac("bain", b.sdb, b.sdb > 1 ? "Salles de bains" : "Salle de bains") + carac("maison", A.esc(b.type), "Type de bien") + "</ul>" +
         (b.description ? '<h3 class="fiche-sous-titre">Description</h3><div class="fiche-description">' + A.esc(b.description).split(/\n{2,}/).map(function (p) { return "<p>" + p.replace(/\n/g, "<br>") + "</p>"; }).join("") + "</div>" : "") +
@@ -117,7 +120,7 @@
           "<div><dt>Situation juridique</dt><dd>" + (b.juridique ? A.esc(b.juridique) + (b.juridiqueVerifie ? ' <span class="verifie">' + A.icone("bouclier") + " Vérifiée par l’agence</span>" : " <small>(information déclarée, vérification en cours)</small>") : "<small>Communiquée sur demande</small>") + "</dd></div>" +
         "</dl>" +
       '</div><aside class="fiche-contact"><div class="fiche-contact-carte">' +
-        '<div class="fiche-contact-haut"><div><p class="fiche-contact-prix">' + A.prix(b.prix) + '</p><p class="carte-ref">Réf. ' + A.esc(b.id) + "</p></div>" +
+        '<div class="fiche-contact-haut"><div><p class="fiche-contact-prix">' + A.prixAffiche(b) + '</p><p class="carte-ref">Réf. ' + A.esc(b.id) + "</p></div>" +
         '<button class="coeur coeur-fiche' + (fav ? " est-actif" : "") + '" type="button" data-favori="' + A.esc(b.id) + '" aria-pressed="' + fav + '" aria-label="' + (fav ? "Retirer des favoris" : "Ajouter aux favoris") + '">' + A.icone("coeur") + "</button></div>" +
         formulaires(b) +
         '<a class="btn btn-wa btn-whatsapp" href="#" data-whatsapp="Bonjour, je suis intéressé(e) par le bien ' + A.esc(b.id) + " — " + A.esc(b.titre) + '.">' + A.icoWA + " Échanger sur WhatsApp</a>" +

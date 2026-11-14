@@ -67,7 +67,7 @@
     <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-lieu"/></svg><div class="champ-texte"><label for="r-ville">Localisation</label><select id="r-ville" name="ville"><option value="">Toutes les villes</option><option value="Marrakech">Marrakech</option><option value="Casablanca">Casablanca</option><option value="Rabat">Rabat</option><option value="Tanger">Tanger</option><option value="Agadir">Agadir</option></select></div></div>
     <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-maison"/></svg><div class="champ-texte"><label for="r-type">Type de bien</label><select id="r-type" name="type"><option value="">Tous les biens</option><option value="Villa">Villas</option><option value="Appartement">Appartements</option><option value="Riad">Riads</option><option value="Maison">Maisons</option><option value="Terrain">Terrains</option></select></div></div>
     <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-budget"/></svg><div class="champ-texte"><label for="r-budget">Budget</label><select id="r-budget" name="budget"><option value="">Budget (DH)</option><option value="-1500000">Jusqu’à 1,5 M DH</option><option value="1500000-3000000">1,5 à 3 M DH</option><option value="3000000-6000000">3 à 6 M DH</option><option value="6000000-10000000">6 à 10 M DH</option><option value="10000000-">Plus de 10 M DH</option></select></div></div>
-    <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-surface"/></svg><div class="champ-texte"><label for="r-surface">Surface</label><select id="r-surface" name="surface"><option value="">Surface (m²)</option><option value="50">50 m² et plus</option><option value="100">100 m² et plus</option><option value="200">200 m² et plus</option><option value="300">300 m² et plus</option><option value="500">500 m² et plus</option></select></div></div>
+    <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-surface"/></svg><div class="champ-texte"><label for="r-surface">Surface</label><select id="r-surface" name="surface"><option value="">Surface (m²)</option><option value="0-50">Moins de 50 m²</option><option value="50-100">50 à 100 m²</option><option value="100-200">100 à 200 m²</option><option value="200-300">200 à 300 m²</option><option value="300-500">300 à 500 m²</option><option value="500-">500 m² et plus</option></select></div></div>
     <div class="champ"><svg class="ico " aria-hidden="true"><use href="#i-lit"/></svg><div class="champ-texte"><label for="r-chambres">Chambres</label><select id="r-chambres" name="chambres"><option value="">Chambres</option><option value="1">1 et plus</option><option value="2">2 et plus</option><option value="3">3 et plus</option><option value="4">4 et plus</option><option value="5">5 et plus</option></select></div></div>
     <button class="btn btn-vert" type="submit"><svg class="ico " aria-hidden="true"><use href="#i-loupe"/></svg> Rechercher</button>
   </form>
@@ -80,6 +80,25 @@
     <li><svg class="ico " aria-hidden="true"><use href="#i-graphique"/></svg><div><strong>Expertise locale</strong><span>Une connaissance fine du marché marocain</span></div></li>
     <li><svg class="ico " aria-hidden="true"><use href="#i-mains"/></svg><div><strong>Confiance &amp; discrétion</strong><span>Vos projets en toute sérénité</span></div></li>
   </ul>
+</section>
+
+<section class="section section-coeur" id="coup-de-coeur" hidden>
+  <div class="conteneur coeur-duo">
+    <div class="coeur-visuel" id="coeur-visuel">
+      <span class="coeur-etiquette"><svg class="ico" aria-hidden="true"><use href="#i-coeur"/></svg> Coup de cœur</span>
+    </div>
+    <div class="coeur-texte">
+      <p class="surtitre">Le coup de cœur de l’agence</p>
+      <h2 id="coeur-titre"></h2>
+      <p class="coeur-lieu" id="coeur-lieu"></p>
+      <p class="coeur-accroche">On ne vend pas un bien, on vend une émotion.</p>
+      <p class="coeur-desc" id="coeur-desc"></p>
+      <p class="coeur-prix" id="coeur-prix"></p>
+      <div class="coeur-boutons">
+        <a class="btn btn-or" id="coeur-lien" href="biens.html">Découvrir ce bien <svg class="ico ico-fleche" aria-hidden="true"><use href="#i-fleche"/></svg></a>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="section section-blanche section-selection" id="selection">

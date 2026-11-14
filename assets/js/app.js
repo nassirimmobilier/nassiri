@@ -21,6 +21,18 @@
     return (Date.now() - new Date(b.date).getTime()) / 864e5 <= A.config.nouveauJours;
   };
   A.nombre = function (n) { return new Intl.NumberFormat("fr-FR").format(n); };
+  /* Prix affiché selon le type de transaction (vente, location longue durée, location saisonnière) */
+  A.prixAffiche = function (b) {
+    if (b.prix_sur_demande === "oui" || !b.prix) return "Prix sur demande";
+    if (b.transaction === "location-longue") return A.prix(b.prix) + " / mois";
+    if (b.transaction === "location-courte") return A.prix(b.prix) + " / nuit";
+    return A.prix(b.prix);
+  };
+  A.libelleTransaction = function (b) {
+    if (b.transaction === "location-longue") return "À louer";
+    if (b.transaction === "location-courte") return "À louer — courte durée";
+    return "À vendre";
+  };
   A.dateFr = function (iso, avecHeure) {
     if (!iso) return "";
     var d = new Date(iso.length === 10 ? iso + "T12:00" : iso);
@@ -102,6 +114,8 @@
   A.carte = function (b) {
     var fav = A.favoris.contient(b.id);
     var badges = '<span class="badge badge-type">' + A.esc(b.type) + "</span>";
+    if (b.transaction === "location-longue" || b.transaction === "location-courte") badges += '<span class="badge badge-location">' + A.esc(A.libelleTransaction(b)) + "</span>";
+    if (b.coup_de_coeur === "oui") badges += '<span class="badge badge-coeur">' + A.icone("coeur") + " Coup de cœur</span>";
     if (b.statut === "vendu") badges += '<span class="badge badge-vendu">Vendu</span>';
     else if (b.statut === "sous-offre") badges += '<span class="badge badge-offre">Sous offre</span>';
     else if (b.exclusivite) badges += '<span class="badge badge-or">Exclusivité</span>';
@@ -125,7 +139,7 @@
         '<p class="carte-lieu">' + A.esc(b.ville) + " · " + A.esc(b.quartier) + "</p>" +
         '<h3 class="carte-titre">' + A.esc(b.titre) + "</h3>" +
         '<ul class="carte-carac">' + carac.join("") + "</ul>" +
-        '<div class="carte-pied"><p class="carte-prix">' + A.prix(b.prix) + "</p>" +
+        '<div class="carte-pied"><p class="carte-prix">' + A.prixAffiche(b) + "</p>" +
         '<a class="carte-lien" href="bien.html?id=' + encodeURIComponent(b.id) + '" aria-label="Voir le bien : ' + A.esc(b.titre) + '">Voir le bien ' + A.icone("fleche") + "</a></div>" +
         '<p class="carte-ref">Réf. ' + b.id + "</p>" +
       "</div></article>";

@@ -48,6 +48,7 @@
     return { id: b.id, statut: b.statut, titre: b.titre, type: b.type, ville: b.ville, quartier: b.quartier, prix: n(b.prix), surface: n(b.surface), terrain: n(b.terrain),
       chambres: n(b.chambres), sdb: n(b.sdb), description: b.description || "", equipements: (b.equipements || "").split("|").filter(Boolean),
       juridique: b.juridique || "", juridiqueVerifie: b.juridique_verifie === "oui", exclusivite: b.exclusivite === "oui", aLaUne: b.a_la_une === "oui",
+      transaction: b.transaction || "vente", prix_sur_demande: b.prix_sur_demande === "oui" ? "oui" : "non", coup_de_coeur: b.coup_de_coeur === "oui" ? "oui" : "non",
       date: b.date_publication || "", photos: b.photos || [] };
   }
   A.charger = function (forcer) {

@@ -45,6 +45,20 @@ body.admin { background: #F4F2EC; font-size: 16px; }
 .a-bandeau-demo .ico { color: var(--champagne-fonce); width: 18px; height: 18px; }
 .a-entete { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: clamp(18px, 2vw, 28px); }
 .a-entete h1 { font-size: clamp(28px, 2.6vw, 40px); line-height: 1.1; }
+.a-entete-droite { display: flex; align-items: center; gap: 12px; }
+.a-notif { position: relative; }
+.a-cloche { position: relative; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--ivoire); color: var(--vert); border: 1px solid var(--bordure, #E4E0D4); flex: none; }
+.a-cloche:hover { color: #fff; background: var(--vert); }
+.a-cloche .ico { width: 21px; height: 21px; }
+.a-point-rouge { position: absolute; top: 7px; right: 8px; width: 10px; height: 10px; border-radius: 50%; background: #C0392B; border: 2px solid #fff; }
+.a-notif.est-ouvert .a-cloche { color: #fff; background: var(--vert); }
+.a-notif-panneau { position: absolute; top: calc(100% + 10px); right: 0; width: min(380px, 92vw); max-height: 70vh; overflow-y: auto; background: #fff; border: 1px solid #E4E0D4; border-radius: 12px; box-shadow: 0 16px 40px rgba(28, 36, 31, .18); z-index: 30; padding: 8px; }
+.a-notif-soustitre { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #8a8572; padding: 10px 10px 4px; }
+.a-notif-ligne { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; }
+.a-notif-ligne:hover { background: var(--ivoire); }
+.a-notif-titre { font-weight: 600; font-size: 14.5px; color: var(--anthracite, #1C241F); }
+.a-notif-detail { font-size: 13px; color: #6b6655; }
+.a-notif-panneau .a-vide { padding: 14px 10px; margin: 0; }
 .a-fil-retour { display: inline-flex; align-items: center; gap: 4px; color: var(--gris); font-size: 14.5px; min-height: 36px; }
 .a-fil-retour .ico { width: 16px; height: 16px; }
 .a-bloc { background: #fff; border: 1px solid var(--trait); border-radius: 14px; padding: clamp(18px, 1.8vw, 28px); margin-bottom: 18px; }
@@ -116,6 +130,7 @@ button.a-ligne:hover { background: var(--ivoire); }
 .a-refus-form { grid-column: 1 / -1; grid-row: 2; background: #FAF9F6; border: 1px solid #E4E0D4; border-radius: 10px; padding: 14px; margin-top: 10px; display: grid; gap: 8px; }
 .a-refus-form label { font-size: 13px; font-weight: 600; }
 .a-refus-form input, .a-refus-form textarea { width: 100%; }
+.a-message-bienvenue { width: 100%; font: inherit; font-size: 14px; line-height: 1.5; margin: 10px 0; padding: 10px; border-radius: 8px; border: 1px solid #EBDDBC; background: #fff; resize: vertical; }
 
 /* ---------- Formulaires ---------- */
 .a-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }

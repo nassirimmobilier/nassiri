@@ -16,7 +16,7 @@
     if (v.quartier) l.push("Quartier : " + v.quartier);
     if (v.bmin) l.push("Budget minimum : " + dh(v.bmin));
     l.push("Budget maximum : " + (v.bmax ? dh(v.bmax) : "à préciser"));
-    if (v.surface) l.push("Surface minimale : " + v.surface + " m²");
+    if (v.surface) { var selS = form.elements.surface; l.push("Surface : " + selS.options[selS.selectedIndex].text); }
     if (v.chambres) l.push("Chambres : " + v.chambres + " et plus");
     if (equip.length) l.push("Équipements : " + equip.join(", "));
     var texte = "RECHERCHE IMMOBILIÈRE PERSONNALISÉE\n\n" + l.join("\n") + (v.commentaire ? "\n\nCommentaire : " + v.commentaire : "");

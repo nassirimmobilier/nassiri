@@ -110,7 +110,6 @@
         '<h2 class="fiche-titre">' + A.esc(b.titre) + "</h2>" +
         '<p class="fiche-prix">' + A.prixAffiche(b) + "</p>" +
         ((b.transaction || "vente") === "vente" && b.prix && (b.surface || b.terrain) ? '<p class="fiche-prix-m2">soit ' + A.nombre(Math.round(b.prix / (b.surface || b.terrain))) + "\u00a0DH/m² " + (b.surface ? "habitable" : "de terrain") + "</p>" : "") +
-        '<p class="fiche-partage"><button type="button" class="btn btn-ligne btn-partager" data-partager="' + A.esc(b.id) + '" data-avec-image>' + A.icoPartage + " Partager ce bien</button></p>" +
         '<ul class="fiche-carac">' + carac("surface", b.surface ? A.nombre(b.surface) + " m²" : "", "Surface habitable") + carac("boussole", b.terrain ? A.nombre(b.terrain) + " m²" : "", "Terrain") +
           carac("lit", b.chambres, b.chambres > 1 ? "Chambres" : "Chambre") + carac("bain", b.sdb, b.sdb > 1 ? "Salles de bains" : "Salle de bains") + carac("maison", A.esc(b.type), "Type de bien") + "</ul>" +
         (b.description ? '<h3 class="fiche-sous-titre">Description</h3><div class="fiche-description">' + A.esc(b.description).split(/\n{2,}/).map(function (p) { return "<p>" + p.replace(/\n/g, "<br>") + "</p>"; }).join("") + "</div>" : "") +
@@ -129,8 +128,6 @@
       (similaires.length ? '<section class="similaires"><h2 class="titre">Biens similaires</h2><div class="grille" style="margin-top:26px">' + similaires.map(A.carte).join("") + "</div></section>" : "");
 
     barreContact(b);
-    A.preparerPartage(b);
-    A.evenement("view_item", { item_id: b.id, item_name: b.titre, item_category: b.type });
     /* Statistique de consultation : une seule fois par session et par bien */
     try { if (!sessionStorage.getItem("vu_" + b.id)) { sessionStorage.setItem("vu_" + b.id, "1"); A.api("vue", { bien_id: b.id }).catch(function () {}); } } catch (e) {}
   }

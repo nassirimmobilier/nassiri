@@ -6,7 +6,7 @@
   "use strict";
   var A = window.ATLAS, e = A.esc, ico = A.icone;
   var racine, D = null;
-  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
+  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null, dernierMdp: null, notifOuvertes: false };
   var LIB_STATUT = { brouillon: "Brouillon", en_attente: "En attente de validation", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé", refuse: "Refusé" };
   var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
@@ -49,7 +49,43 @@
   }
   function charger() { return A.api("donnees").then(function (r) { D = r; try { sessionStorage.removeItem("nassiri_catalogue"); } catch (x) {} }); }
   function indicateur() { var i = document.getElementById("a-occupe"); if (i) { i.textContent = etat.occupe; i.hidden = !etat.occupe; } }
-  function aller(vue, id) { etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; rendre(); window.scrollTo(0, 0); }
+  function aller(vue, id) { if (etat.notifOuvertes) marquerVentesVues(); etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; etat.dernierMdp = null; etat.notifOuvertes = false; rendre(); window.scrollTo(0, 0); }
+  function dernierVuVentes(valeur) {
+    var CLE = "nassiri_notif_vu_ventes";
+    if (valeur !== undefined) { try { localStorage.setItem(CLE, valeur); } catch (x) {} return; }
+    try { return localStorage.getItem(CLE) || ""; } catch (x) { return ""; }
+  }
+  /* On ne marque les ventes comme vues qu’à la FERMETURE du panneau (pas à l’ouverture), pour que l’admin ait le temps de les voir au moins une fois. */
+  function marquerVentesVues() {
+    var max = ""; D.biens.filter(function (b) { return b.statut === "vendu"; }).forEach(function (b) { if (b.date_maj > max) max = b.date_maj; });
+    if (max) dernierVuVentes(max);
+  }
+  /* Ce que la cloche doit signaler sans avoir à ouvrir la fiche de l’agent : biens à valider (toujours, tant qu’ils le sont) et ventes récentes (jusqu’à ce qu’on ouvre la cloche). */
+  function notifications() {
+    var attente = D.biens.filter(function (b) { return b.statut === "en_attente"; }).sort(recent);
+    var vu = dernierVuVentes();
+    var ventes = D.biens.filter(function (b) { return b.statut === "vendu" && b.date_maj && (!vu || b.date_maj > vu); }).sort(recent);
+    return { attente: attente, ventes: ventes, total: attente.length + ventes.length };
+  }
+  function ligneNotif(b, libelle) {
+    var ag = b.agent_id ? agent(b.agent_id) : null;
+    return '<button type="button" class="a-notif-ligne" data-action="notif-item" data-id="' + e(b.id) + '"><span class="a-notif-titre">' + e(b.titre || "Bien") + "</span><span class=\"a-notif-detail\">" + libelle + (ag ? " · apporté par " + e(ag.nom) : "") + " · " + e(A.dateFr(b.date_maj, true)) + "</span></button>";
+  }
+  function panneauNotifications(notif) {
+    var corps = (notif.attente.length ? '<p class="a-notif-soustitre">À valider</p>' + notif.attente.map(function (b) { return ligneNotif(b, "En attente de validation"); }).join("") : "") +
+      (notif.ventes.length ? '<p class="a-notif-soustitre">Vendu récemment</p>' + notif.ventes.map(function (b) { return ligneNotif(b, "Vendu"); }).join("") : "");
+    return '<div class="a-notif-panneau" role="menu">' + (notif.total ? corps : '<p class="a-vide">Aucune notification pour le moment.</p>') + "</div>";
+  }
+  function lienAgentHtml() { return location.origin + location.pathname.replace(/admin\.html.*$/, "agent.html"); }
+  function messageBienvenueAgent(a, mdp) {
+    return "Bonjour " + a.nom + ",\n\nVoici vos accès à l’espace agent Nassiri Real Estate :\n\nLien : " + lienAgentHtml() + "\nE-mail : " + a.email + "\nMot de passe : " + mdp +
+      "\n\nVous pourrez y déposer vos biens ; ils seront vérifiés puis publiés par l’agence avant de devenir visibles sur le site.";
+  }
+  function motDePasseAleatoire() {
+    var car = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", s = "";
+    for (var i = 0; i < 10; i++) s += car[Math.floor(Math.random() * car.length)];
+    return s;
+  }
 
   /* ====================================================================== CONNEXION */
   function vueConnexion(erreur) {
@@ -247,11 +283,20 @@
     var nouveau = !etat.id, a = nouveau ? { actif: "oui" } : agent(etat.id);
     if (!a) return '<p class="a-vide a-bloc">Agent introuvable.</p>';
     var mesBiens = nouveau ? [] : D.biens.filter(function (b) { return b.agent_id === a.id; });
-    return '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
+    var boiteBienvenue = "";
+    if (!nouveau && etat.dernierMdp) {
+      var msg = messageBienvenueAgent(a, etat.dernierMdp), num = String(a.whatsapp || a.telephone || "").replace(/\D/g, "");
+      boiteBienvenue = '<section class="a-bloc a-note"><div><strong>' + ico("cle") + " Codes d’accès pour " + e(a.nom) + '</strong><p>Mot de passe actuel : <code>' + e(etat.dernierMdp) + '</code> — notez-le ou envoyez-le maintenant, il ne sera plus jamais réaffiché ensuite.</p>' +
+        '<textarea class="a-message-bienvenue" readonly rows="6">' + e(msg) + '</textarea>' +
+        '<div class="a-form-pied">' + (num ? '<a class="btn btn-vert" href="' + A.lienWhatsApp(num, msg) + '" target="_blank" rel="noopener">' + ico("telephone") + " Envoyer sur WhatsApp</a>" : '<span class="a-aide">Ajoutez un numéro WhatsApp à cet agent pour activer cet envoi.</span>') +
+        '<a class="btn btn-ligne" href="mailto:' + e(a.email) + "?subject=" + encodeURIComponent("Vos accès — Espace Agent Nassiri Real Estate") + "&body=" + encodeURIComponent(msg) + '">' + ico("courrier") + " Envoyer par e-mail</a>" +
+        '<button type="button" class="btn btn-ligne" data-action="copier-message">' + ico("document") + " Copier le message</button></div></div></section>";
+    }
+    return boiteBienvenue + '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
       champ("nom", "Nom *", a.nom, "required", "plein") + champ("email", "E-mail (identifiant de connexion) *", a.email, 'type="email" required') + champ("telephone", "Téléphone", a.telephone, 'type="tel"') +
-      champ("whatsapp", "WhatsApp", a.whatsapp, "") + champ("motDePasse", nouveau ? "Mot de passe (8 caractères minimum) *" : "Nouveau mot de passe (laisser vide pour ne pas changer)", "", 'type="password" autocomplete="new-password"') + "</div>" +
+      champ("whatsapp", "WhatsApp (numéro international sans +, ex. 212600000000)", a.whatsapp, "") + champ("motDePasse", nouveau ? "Mot de passe (8 caractères minimum) *" : "Nouveau mot de passe (laisser vide pour ne pas changer)", "", 'type="password" autocomplete="new-password"') + "</div>" +
       (nouveau ? "" : '<label class="a-bascule"><input type="checkbox" name="actif"' + (a.actif === "oui" ? " checked" : "") + "><span></span><div><strong>Accès actif</strong><small>Désactivez pour bloquer sa connexion sans supprimer ses biens.</small></div></label>") +
-      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
+      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button><button type="button" class="btn btn-ligne" data-action="renvoyer-codes" data-id="' + e(a.id) + '">' + ico("cle") + " Renvoyer de nouveaux codes</button>") + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
       (nouveau ? "" : '<section class="a-bloc"><h2>Biens apportés (' + mesBiens.length + ")</h2>" +
         (mesBiens.length ? mesBiens.map(function (b) { return '<button class="a-ligne" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '"><span class="a-ligne-texte"><strong>' + e(b.titre) + "</strong><small>" + e(b.id) + "</small></span>" + badgeStatut(b.statut) + "</button>"; }).join("") : '<p class="a-vide">Aucun bien pour le moment.</p>') + "</section>") + "</div>";
   }
@@ -341,15 +386,18 @@
   function rendre() {
     if (!D) { racine.innerHTML = vueConnexion(); return; }
     var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
+    var notif = notifications();
     var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", demandes: "Demandes", parametres: "Paramètres" };
     var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres }[v]();
     var action = v === "biens" || v === "tableau" ? '<button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : "";
     var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : "";
     racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Pro">' +
-      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + "</button>"; }).join("") +
+      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : m[0] === "biens" && notif.attente.length ? '<em class="a-compteur">' + notif.attente.length + "</em>" : "") + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
       '<main class="a-principal">' + (A.demo ? '<p class="a-bandeau-demo">' + ico("info") + " Mode démonstration — données fictives enregistrées sur cet appareil, accès non protégé.</p>" : "") +
-      '<header class="a-entete"><div>' + (retour ? '<button class="a-fil-retour" data-action="aller" data-vue="' + retour + '">' + ico("gauche") + " " + titres[retour] + "</button>" : "") + "<h1>" + e(titres[v]) + "</h1></div>" + action + "</header>" + corps + "</main></div>" +
+      '<header class="a-entete"><div>' + (retour ? '<button class="a-fil-retour" data-action="aller" data-vue="' + retour + '">' + ico("gauche") + " " + titres[retour] + "</button>" : "") + "<h1>" + e(titres[v]) + "</h1></div><div class=\"a-entete-droite\">" +
+      '<div class="a-notif' + (etat.notifOuvertes ? " est-ouvert" : "") + '"><button type="button" class="a-cloche" data-action="notif-basculer" aria-haspopup="true" aria-expanded="' + (etat.notifOuvertes ? "true" : "false") + '" aria-label="Notifications' + (notif.total ? " (" + notif.total + " nouvelles)" : "") + '">' + ico("cloche") + (notif.total ? '<em class="a-point-rouge" aria-hidden="true"></em>' : "") + "</button>" + (etat.notifOuvertes ? panneauNotifications(notif) : "") + "</div>" +
+      action + "</div></header>" + corps + "</main></div>" +
       '<div id="a-occupe" class="a-occupe" role="status" hidden></div>';
   }
 
@@ -365,6 +413,12 @@
       confirmer("Valider ce bien ?", "« " + x.titre + " » sera publié sur le site public." + (!n(x.prix) ? " Attention : aucun prix n’est renseigné." : ""), "Valider et publier")
         .then(function (ok) { if (ok) faire("bienValider", { id: x.id }, "Bien validé et publié.").then(function () { if (etat.edition && etat.id === x.id) etat.edition = Object.assign({}, bien(x.id)); rendre(); }); });
     },
+    "notif-basculer": function () {
+      if (etat.notifOuvertes) marquerVentesVues();
+      etat.notifOuvertes = !etat.notifOuvertes;
+      rendre();
+    },
+    "notif-item": function (b) { aller("bien", b.dataset.id); },
     "ouvrir-refus": function (b) { etat.refus = b.dataset.id; rendre(); var i = document.getElementById("f-motif"); if (i) i.focus(); },
     "annuler-refus": function () { etat.refus = null; rendre(); },
     "choisir-motif": function (b) { var i = document.getElementById("f-motif"); if (i) i.value = b.dataset.motif; },
@@ -389,6 +443,20 @@
     "supprimer-agent": function (b) {
       confirmer("Supprimer cet agent ?", "Son accès sera supprimé définitivement. Réattribuez d’abord ses biens s’il en a.", "Supprimer définitivement")
         .then(function (ok) { if (ok) faire("agentSupprimer", { id: b.dataset.id }, "Agent supprimé.").then(function () { aller("agents"); }).catch(function () {}); });
+    },
+    "renvoyer-codes": function (b) {
+      var a = agent(b.dataset.id);
+      confirmer("Générer de nouveaux codes ?", "Un nouveau mot de passe sera créé pour " + a.nom + " : l’ancien cessera de fonctionner immédiatement.", "Générer de nouveaux codes")
+        .then(function (ok) {
+          if (!ok) return;
+          var mdp = motDePasseAleatoire();
+          faire("agentEnregistrer", { agent: { id: a.id, motDePasse: mdp } }, "Nouveaux codes générés pour " + a.nom + ".").then(function () { etat.dernierMdp = mdp; rendre(); window.scrollTo(0, 0); });
+        });
+    },
+    "copier-message": function () {
+      var a = agent(etat.id); if (!a || !etat.dernierMdp) return;
+      var msg = messageBienvenueAgent(a, etat.dernierMdp);
+      (navigator.clipboard ? navigator.clipboard.writeText(msg) : Promise.reject()).then(function () { A.message("Message copié."); }, function () { A.message("Copie impossible sur cet appareil : sélectionnez le texte manuellement."); });
     },
     "supprimer-prospect": function (b) {
       confirmer("Supprimer ce prospect ?", "Sa fiche, son historique et ses demandes seront supprimés définitivement.", "Supprimer définitivement")
@@ -419,6 +487,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     racine = document.getElementById("admin");
     racine.addEventListener("click", function (ev) {
+      if (etat.notifOuvertes && !ev.target.closest(".a-notif")) { marquerVentesVues(); etat.notifOuvertes = false; rendre(); }
       var b = ev.target.closest("[data-action]");
       if (b && ACTIONS[b.dataset.action]) { ev.preventDefault(); ACTIONS[b.dataset.action](b); }
     });
@@ -456,9 +525,13 @@
         faire("bienRefuser", { id: f.dataset.id, motif: v.motif, commentaire: v.commentaire }, "Bien refusé : l’agent a été notifié.").then(function () { etat.refus = null; if (etat.edition && etat.id === f.dataset.id) etat.edition = Object.assign({}, bien(f.dataset.id)); rendre(); });
       } else if (f.id === "form-agent") {
         if (!v.nom || !v.email) { A.message("Indiquez un nom et un e-mail."); return; }
+        var creation = !etat.id, mdpSaisi = v.motDePasse;
         if (etat.id) v.id = etat.id;
         if (!v.motDePasse) delete v.motDePasse;
-        faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "Agent créé.").then(function (r) { aller("agents"); });
+        faire("agentEnregistrer", { agent: v }, creation ? "Agent créé." : "Agent mis à jour.").then(function (r) {
+          aller("agent", r.agent.id);
+          if (mdpSaisi) { etat.dernierMdp = mdpSaisi; rendre(); }
+        });
       } else if (f.id === "form-motif") {
         if (!v.libelle) { A.message("Indiquez un libellé."); return; }
         faire("motifEnregistrer", { motif: v }, "Motif enregistré.", true).then(function () { charger().then(rendre); f.reset(); });

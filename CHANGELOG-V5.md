@@ -175,3 +175,20 @@ Cette mise à jour ajoute des colonnes et des onglets : il faut impérativement 
   bien d'agent, création d'un agent, gestion des motifs de refus.
 - Tout testé via le moteur réel (`Code.gs`, copie exacte servie en mode démonstration), pas
   seulement simulé côté interface.
+
+## Nouveau : cloche de notification (Espace Pro)
+
+Aucune modification de `Code.gs` n'est nécessaire pour cette partie — uniquement l'interface
+(`admin.js`, `admin.css`). Pas de redéploiement Apps Script requis.
+
+- Une cloche apparaît désormais en permanence en haut à droite, sur toutes les pages de
+  l'Espace Pro (pas seulement le Tableau de bord), avec un point rouge dès qu'il y a quelque
+  chose à voir — sans avoir à ouvrir la fiche de l'agent concerné.
+- Elle signale deux choses : les biens déposés par un agent **en attente de validation** (reste
+  affiché tant qu'ils ne sont ni validés ni refusés), et les biens **vendus récemment** (affiché
+  une fois, puis effacé après ouverture/fermeture de la cloche — mémorisé sur cet appareil).
+- Cliquer sur une ligne de la cloche ouvre directement la fiche du bien concerné.
+- Le menu « Biens » affiche aussi un petit compteur quand des biens d'agents attendent une
+  validation.
+- Vérifié de bout en bout (dépôt d'un bien par un agent, vente d'un bien, navigation, fermeture
+  au clic extérieur, persistance après rechargement de la page) via le moteur de démonstration.

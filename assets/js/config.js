@@ -7,7 +7,7 @@
    ========================================================================== */
 window.ATLAS = window.ATLAS || {};
 ATLAS.config = {
-  apiUrl: "https://script.google.com/macros/s/AKfycbwe-CEaMwcJD17raFUrAA6jPHZ8trybwF6Hf0JTgmNgnwY7pp3ME7caW8Dj-3AWInui/exec",
+  apiUrl: "https://script.google.com/macros/s/AKfycbzLXl5eeyKoAXjHSSYzFA949sJZlrLZDRD54bEvzUAnwFXBopG5iNai1igfwljvMxJ-/exec",
   /* Mesure d'audience Google Analytics 4 : identifiant du type "G-XXXXXXXXXX" (public, sans danger).
      Laissez vide pour ne rien mesurer. Sans effet en mode démonstration et dans l'Espace Pro. */
   analyticsId: "G-02FLJQQTDN",

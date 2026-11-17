@@ -12,6 +12,7 @@
  */
 
 var VERSION = '2.0';
+var BUILD = 'V9.8 - PIN automatique';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -107,7 +108,7 @@ function installer_() {
 function doGet(e) {
   var action = e && e.parameter && e.parameter.action;
   if (action === 'catalogue') return repondre_(proteger_(function () { return catalogue_(); }));
-  return repondre_({ ok: true, service: 'Nassiri Real Estate', version: VERSION });
+  return repondre_({ ok: true, service: 'Nassiri Real Estate', version: VERSION, build: BUILD, pin_auto: true });
 }
 
 function doPost(e) {

@@ -107,17 +107,24 @@
       document.body.appendChild(m);
     });
   }
-  /* Le code PIN est fabriqué par le script Google : s'il ne revient pas, le script n'est pas à jour */
-  function alerteScriptAncien(sansCode) {
+  /* Le code PIN est fabriqué par le script Google : s'il ne revient pas, on le dit simplement (aucune consigne technique à l'écran) */
+  function diagnosticScript() {
+    if (A.demo || !A.config.apiUrl) return Promise.resolve("Mode démonstration.");
+    return fetch(A.config.apiUrl, { redirect: "follow" }).then(function (r) { return r.json(); })
+      .then(function (j) { return j && j.build ? "Script en ligne : " + j.build : "Script en ligne : version sans repère (ancienne)."; })
+      .catch(function () { return "Script injoignable depuis ce navigateur."; });
+  }
+  function alerteScriptAncien(sansCode, detail) {
     return new Promise(function (fini) {
       var m = document.createElement("div"); m.className = "a-modale";
       m.innerHTML = '<div class="a-modale-boite a-modale-large" role="alertdialog" aria-modal="true"><h2>Le code PIN n’a pas pu être créé</h2>' +
-        '<p>Le site est à jour, mais <strong>le script Google (Code.gs)</strong> qui fabrique les codes ne l’est pas encore.</p>' + (sansCode ? '<p class="a-aide">L’agent a été ajouté sans code. Après la mise à jour, ouvrez sa fiche et cliquez sur <strong>Nouveau code PIN</strong>.</p>' : "") +
-        '<ol class="a-aide"><li>Ouvrez votre Google Sheet, puis <strong>Extensions → Apps Script</strong>.</li><li>Remplacez tout le contenu de <strong>Code.gs</strong> par le dernier fichier (dossier <em>apps-script</em> du site).</li>' +
-        '<li>Cliquez sur <strong>Déployer → Gérer les déploiements</strong>, le crayon, puis <strong>Nouvelle version</strong> → Déployer.</li><li>Revenez ici et recommencez.</li></ol>' +
+        '<p>Une erreur est survenue. Réessayez dans un instant. Si le problème continue, prévenez l’administrateur du site.</p>' +
+        (sansCode ? '<p class="a-aide">L’agent a été ajouté sans code : ouvrez sa fiche et cliquez sur <strong>Nouveau code PIN</strong> une fois le problème réglé.</p>' : "") +
+        '<p class="a-aide">Référence de l’erreur : <strong>PIN-01</strong></p>' +
         '<div class="a-modale-actions"><button class="btn btn-vert" data-r="fin">Compris</button></div></div>';
       m.addEventListener("click", function (ev) { if (ev.target.closest("[data-r]") || ev.target === m) { m.remove(); fini(); } });
       document.body.appendChild(m);
+      diagnosticScript().then(function (t) { try { console.info("[PIN-01] " + t + (detail ? " · " + detail : "")); } catch (x) {} });
     });
   }
   var RE_SCRIPT_ANCIEN = /mot de passe|motdepasse|code d.au moins|action inconnue/i;
@@ -1112,7 +1119,7 @@
     "nouveau-code": function (b) {
       var ag = agent(b.dataset.id);
       confirmer("Créer un nouveau code PIN ?", "L’ancien code de " + ag.nom + " ne fonctionnera plus. Le nouveau code s’affichera une seule fois, avec le message WhatsApp prêt à envoyer.", "Créer le nouveau code")
-        .then(function (ok) { if (ok) faire("agentNouveauCode", { id: ag.id }).then(function (r) { if (!r.pin) return alerteScriptAncien(); return boiteCodeAgent(r.agent, r.pin, true); }).then(rendre).catch(function (err) { if (RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(); }); });
+        .then(function (ok) { if (ok) faire("agentNouveauCode", { id: ag.id }).then(function (r) { if (!r.pin) return alerteScriptAncien(false, "aucun code renvoyé"); return boiteCodeAgent(r.agent, r.pin, true); }).then(rendre).catch(function (err) { if (RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(false, String(err.message).slice(0, 160)); }); });
     },
     relance: function (b) {
       var p = prospect(etat.id), j = parseInt(b.dataset.jours, 10), date = j ? dansJours(j) : "";
@@ -1245,9 +1252,9 @@
         var creation = !etat.id;
         faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "").then(function (r) {
           if (r.pin) { A.message("Agent créé."); boiteCodeAgent(r.agent, r.pin, false).then(function () { aller("agents"); }); }
-          else if (creation && !v.motDePasse) { alerteScriptAncien(true).then(function () { aller("agents"); }); }
+          else if (creation && !v.motDePasse) { alerteScriptAncien(true, "aucun code renvoyé").then(function () { aller("agents"); }); }
           else aller("agents");
-        }).catch(function (err) { if (creation && RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(); });
+        }).catch(function (err) { if (creation && RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(false, String(err.message).slice(0, 160)); });
       } else if (f.id === "form-samsar") {
         if (!v.nom) { A.message("Indiquez un nom."); return; }
         if (etat.id) v.id = etat.id;

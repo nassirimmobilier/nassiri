@@ -69,6 +69,13 @@
       ligne("PROSPECTS", { id: p[0], date_creation: jour(p[8]), nom: p[1], telephone: p[2], email: p[3], budget: p[4], type_recherche: p[5], ville_recherche: p[6],
         statut: p[7], notes: "Fiche d’exemple du mode démonstration.", date_relance: p[9], source: "Exemple", date_maj: jour(p[8]) });
     });
+    [["S-EX1", "Exemple — Samsar A", "+212 600 000 011", "Guéliz, Hivernage", "Appartements", "Recommandé par un client", "Actif", "2 % du prix de vente", 0, ""],
+     ["S-EX2", "Exemple — Samsar B", "0600000012", "Palmeraie", "Villas, terrains", "Rencontré sur un chantier", "À contacter", "", 0, jour(1).slice(0, 10)],
+     ["S-EX3", "Exemple — Samsar C", "", "Médina", "Riads", "Contact d’un ami", "Partenaire", "", 6, ""]
+    ].forEach(function (x) {
+      ligne("SAMSAR", { id: x[0], date_creation: jour(x[8] + 3), nom: x[1], telephone: x[2], zone: x[3], specialite: x[4], source: x[5], statut: x[6], commission: x[7],
+        notes: "Fiche d’exemple du mode démonstration.", date_relance: x[9], dernier_contact: "", date_maj: jour(x[8]) });
+    });
     ligne("HISTORIQUE", { id: "H-EX1", prospect_id: "P-EX1", date: jour(0), type: "Demande", note: "Demande de renseignements — NR-0001 Villa contemporaine avec piscine" });
     ligne("HISTORIQUE", { id: "H-EX2", prospect_id: "P-EX2", date: jour(4), type: "Demande", note: "Demande de renseignements — NR-0002" });
     ligne("HISTORIQUE", { id: "H-EX3", prospect_id: "P-EX2", date: jour(3), type: "Appel", note: "Exemple : premier échange téléphonique, projet confirmé." });

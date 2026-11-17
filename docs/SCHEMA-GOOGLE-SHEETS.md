@@ -8,6 +8,7 @@ format texte. Vous pouvez consulter le classeur ; modifiez-le de préférence de
 | **BIENS** | id (ex. NR-0001, stable) · statut (brouillon, publie, sous-offre, vendu, archive) · titre · type · ville · quartier · prix · surface · terrain · chambres · sdb · description · equipements (séparés par \|) · juridique · juridique_verifie · exclusivite · a_la_une · date_creation · date_publication · date_maj · vues · **adresse_privee** · **notes_privees** |
 | **PHOTOS** | id · bien_id · url · drive_id · ordre (1 = photo principale) |
 | **PROSPECTS** | id · date_creation · nom · telephone · email · budget · type_recherche · ville_recherche · statut (Nouveau → Contacté → Qualifié → Visite → Offre → Vente) · notes · date_relance · source · date_maj |
+| **SAMSAR** | id · date_creation · nom · telephone · zone · specialite · source · statut (À contacter → Contacté → Actif → Partenaire → Inactif) · commission · notes · date_relance · dernier_contact · date_maj — *onglet créé automatiquement au premier usage* |
 | **HISTORIQUE** | id · prospect_id · date · type (Demande, Appel, E-mail, WhatsApp, Visite, Note, Statut) · note |
 | **VISITES** | id · date · prospect_id · bien_id · date_souhaitee · creneau · message · statut (À confirmer, Confirmée, Effectuée, Annulée) |
 | **PROPOSITIONS** | id · date · prospect_id · ville · type · prix_souhaite · surface · description · commentaires · photos · statut (Nouveau, À l’étude, Accepté, Refusé) |

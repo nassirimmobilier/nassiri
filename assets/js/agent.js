@@ -54,7 +54,7 @@
       "<h1>Espace Agent</h1><p>Accès réservé aux apporteurs d’affaires de l’agence.</p>" +
       (A.demo ? '<div class="a-note">' + ico("info") + "<div><strong>Mode démonstration</strong><br>Les données sont fictives, enregistrées sur cet appareil.<br>Identifiants de démonstration : <code>youssef.exemple@example.com</code> / <code>agent-demo</code></div></div>" : "") +
       '<label for="f-email">E-mail</label><input id="f-email" name="email" type="email" autocomplete="username" required>' +
-      '<label for="f-mdp">Mot de passe</label><input id="f-mdp" name="motDePasse" type="password" autocomplete="current-password" required>' +
+      '<label for="f-mdp">Code PIN</label><input id="f-mdp" name="motDePasse" type="password" autocomplete="current-password" required>' +
       (erreur ? '<p class="retour est-erreur">' + e(erreur) + "</p>" : "") +
       '<button class="btn btn-vert" type="submit">Se connecter</button><a class="a-retour-site" href="index.html">← Retour au site</a></form></div>';
   }

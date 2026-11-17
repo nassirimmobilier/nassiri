@@ -10,6 +10,9 @@ Accès : lien **Espace Pro** en haut du site, ou `admin.html`. Fonctionne sur iP
 4. Complétez surfaces, chambres, équipements et description.
 5. **Enregistrer et publier**. Le bien apparaît sur le site (sous 5 minutes pour un visiteur déjà présent).
 
+## Importer une annonce préparée par l'IA
+Biens → **Importer une annonce IA** : voir `IMPORT-ANNONCE-IA.md`.
+
 ## Photos
 - La première photo est la photo principale (cadre doré).
 - Étoile : définir comme principale. Flèches : déplacer. Corbeille : supprimer.
@@ -44,6 +47,12 @@ Le public voit uniquement la ville et le quartier.
 - Étapes : Nouveau → Contacté → Qualifié → Visite → Offre → Vente.
 - **Date de relance** : à l'échéance, le prospect apparaît dans « Actions à effectuer ».
 - **Historique** : notez chaque appel, e-mail, message ou visite.
+
+## Agents : code PIN automatique
+À la création d'un agent, un **code PIN à 6 chiffres** est généré. Une fenêtre affiche le code **une seule fois** avec un message de bienvenue prêt pour WhatsApp (lien, identifiant, code). Code perdu : fiche de l'agent → **Nouveau code** (l'ancien cesse de fonctionner). **Désactiver l'accès** coupe immédiatement la connexion ; **Réactiver** la rétablit. Les codes ne sont jamais stockés en clair : il n'existe donc pas de liste des codes.
+
+## Samsar (carnet de réseau)
+Onglet **Samsar** : un annuaire de vos intermédiaires (nom, téléphone, zone, spécialité, commission, statut, notes). Filtre par statut, recherche, relances programmables (apparaissent dans « À faire » du tableau de bord) et messages WhatsApp prêts à envoyer (premier contact, biens, relance, remerciement). Le samsar n'a pas de connexion.
 
 ## Tableau de bord
 Biens actifs, biens vendus, prospects, demandes de visite, favoris, dernières demandes, biens les

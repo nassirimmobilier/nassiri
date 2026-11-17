@@ -35,6 +35,7 @@ var ONGLETS = {
   ALERTES: ['id', 'date', 'type', 'prospect_id', 'bien_id', 'resume', 'lu', 'email_envoye'],
   PARAMETRES: ['cle', 'valeur'],
   AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation'],
+  SAMSAR: ['id', 'date_creation', 'nom', 'telephone', 'zone', 'specialite', 'source', 'statut', 'commission', 'notes', 'date_relance', 'dernier_contact', 'date_maj'],
   MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre']
 };
 /* en_attente : soumis par un agent, attend la validation du staff. refuse : renvoyé à l'agent avec motif. */
@@ -43,6 +44,7 @@ var STATUTS_BIEN = ['brouillon', 'en_attente', 'publie', 'sous-offre', 'vendu', 
 var STATUTS_BIEN_AGENT = ['brouillon', 'en_attente'];
 var TRANSACTIONS_BIEN = ['vente', 'location-longue', 'location-courte'];
 var STATUTS_PROSPECT = ['Nouveau', 'Contacté', 'Qualifié', 'Visite', 'Offre', 'Vente'];
+var STATUTS_SAMSAR = ['À contacter', 'Contacté', 'Actif', 'Partenaire', 'Inactif'];
 var STATUTS_VISITE = ['À confirmer', 'Confirmée', 'Effectuée', 'Annulée'];
 var STATUTS_PROPOSITION = ['Nouveau', 'À l’étude', 'Accepté', 'Refusé'];
 var STATUTS_COMMISSION = ['à verser', 'versée'];
@@ -133,7 +135,14 @@ function verrou_(fn) {
 /* ============================== ACCÈS AU CLASSEUR ============================== */
 
 function feuille_(nom) {
-  var f = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nom);
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), f = ss.getSheetByName(nom);
+  if (!f && ONGLETS[nom] && nom === 'SAMSAR') {      // onglet ajouté après l'installation initiale : création automatique
+    var cols = ONGLETS[nom];
+    f = ss.insertSheet(nom);
+    f.getRange(1, 1, f.getMaxRows(), cols.length).setNumberFormat('@');
+    f.getRange(1, 1, 1, cols.length).setValues([cols]);
+    f.setFrozenRows(1);
+  }
   if (!f) throw erreur_('Onglet « ' + nom + ' » introuvable : lancez l’installation depuis le menu Nassiri Real Estate.', 'INSTALLATION');
   return f;
 }
@@ -190,6 +199,15 @@ function hacher_(motDePasse, sel) {
   var h = sel + ':' + motDePasse;
   for (var i = 0; i < 300; i++) h = hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h + sel, Utilities.Charset.UTF_8));
   return h;
+}
+/* Code PIN à 6 chiffres tiré au hasard (aléa sécurisé des identifiants Google, sans biais : on ne garde que les chiffres 0 à 9). */
+function genererPin_() {
+  var pin = '';
+  while (pin.length < 6) {
+    var u = Utilities.getUuid().replace(/-/g, '');
+    for (var i = 0; i < u.length && pin.length < 6; i++) { var v = parseInt(u.charAt(i), 16); if (v < 10) pin += String(v); }
+  }
+  return pin;
 }
 function definirMotDePasse_(mdp) {
   mdp = String(mdp || '');
@@ -427,8 +445,8 @@ var ADMIN = {
     var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation }; });
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
-      agents: agents, motifsRefus: tous_('MOTIFS_REFUS'),
-      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
+      agents: agents, samsar: tous_('SAMSAR'), motifsRefus: tous_('MOTIFS_REFUS'),
+      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsSamsar: STATUTS_SAMSAR, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
   },
 
   bienEnregistrer: function (d) {
@@ -552,11 +570,49 @@ var ADMIN = {
     if (!a.nom) throw erreur_('Indiquez un nom.');
     if (!a.email) throw erreur_('Indiquez un e-mail.');
     if (trouverAgentParEmail_(a.email)) throw erreur_('Un agent utilise déjà cet e-mail.');
-    if (!s.motDePasse || String(s.motDePasse).length < 8) throw erreur_('Choisissez un mot de passe d’au moins 8 caractères pour l’agent.');
+    /* Nouvel agent : un code PIN est généré automatiquement. Il n'est renvoyé qu'une seule fois (jamais stocké en clair). */
+    var pin = s.motDePasse ? '' : genererPin_(), secret = s.motDePasse ? String(s.motDePasse) : pin;
+    if (secret.length < 6) throw erreur_('Le code doit contenir au moins 6 caractères.');
     a.id = identifiant_('AG'); a.actif = a.actif || 'oui'; a.date_creation = maintenant_();
-    a.sel = Utilities.getUuid(); a.hachage = hacher_(s.motDePasse, a.sel);
-    return { agent: sansClefs_(ajouter_('AGENTS', a), ['sel', 'hachage']) };
+    a.sel = Utilities.getUuid(); a.hachage = hacher_(secret, a.sel);
+    return { agent: sansClefs_(ajouter_('AGENTS', a), ['sel', 'hachage']), pin: pin };
   },
+  /* Nouveau code PIN (code perdu) : l'ancien cesse de fonctionner. Le nouveau n'est renvoyé qu'une fois. */
+  agentNouveauCode: function (d) {
+    var a = trouver_('AGENTS', d.id);
+    if (!a) throw erreur_('Agent introuvable.', 'INTROUVABLE');
+    var pin = genererPin_(), sel = Utilities.getUuid();
+    modifier_('AGENTS', a.id, { sel: sel, hachage: hacher_(pin, sel) });
+    CacheService.getScriptCache().remove('echecs_agent_' + String(a.email || '').toLowerCase().slice(0, 120));
+    return { agent: sansClefs_(trouver_('AGENTS', a.id), ['sel', 'hachage']), pin: pin };
+  },
+  /* ---- Carnet de samsar (réseau d'intermédiaires) ---- */
+  samsarEnregistrer: function (d) {
+    var s = d.samsar || {}, x = {};
+    ['nom', 'telephone', 'zone', 'specialite', 'source', 'commission', 'date_relance', 'dernier_contact'].forEach(function (k) { if (s[k] !== undefined) x[k] = propre_(s[k], 200); });
+    if (s.notes !== undefined) x.notes = propre_(s.notes, 6000);
+    if (s.statut !== undefined) { if (STATUTS_SAMSAR.indexOf(s.statut) === -1) throw erreur_('Statut inconnu.'); x.statut = s.statut; }
+    x.date_maj = maintenant_();
+    var chiffres = chiffres_(x.telephone || '');
+    var doublon = function (ignorerId) {
+      if (chiffres.length < 8) return null;
+      var l = lire_('SAMSAR');
+      for (var i = 0; i < l.length; i++) if (l[i].id !== ignorerId && chiffres_(l[i].telephone).slice(-9) === chiffres.slice(-9)) return l[i];
+      return null;
+    };
+    if (s.id) {
+      if (!trouver_('SAMSAR', s.id)) throw erreur_('Samsar introuvable.', 'INTROUVABLE');
+      var autre = x.telephone !== undefined ? doublon(s.id) : null;
+      if (autre) throw erreur_('Ce numéro est déjà enregistré pour « ' + autre.nom + ' ».');
+      return { samsar: sans_(modifier_('SAMSAR', s.id, x)) };
+    }
+    if (!x.nom) throw erreur_('Indiquez un nom.');
+    var deja = doublon('');
+    if (deja) throw erreur_('Ce numéro est déjà enregistré pour « ' + deja.nom + ' ».');
+    x.id = identifiant_('S'); x.date_creation = x.date_maj; x.statut = x.statut || 'À contacter';
+    return { samsar: sans_(ajouter_('SAMSAR', x)) };
+  },
+  samsarSupprimer: function (d) { supprimer_('SAMSAR', d.id); return {}; },
   agentSupprimer: function (d) {
     if (lire_('BIENS').some(function (b) { return b.agent_id === d.id; })) throw erreur_('Cet agent a des biens rattachés : réattribuez-les avant de le supprimer.');
     supprimer_('AGENTS', d.id);

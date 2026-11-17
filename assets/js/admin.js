@@ -6,7 +6,7 @@
   "use strict";
   var A = window.ATLAS, e = A.esc, ico = A.icone;
   var racine, D = null;
-  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null, dernierMdp: null, notifOuvertes: false };
+  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", filtreSamsar: "", imp: null, recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
   var LIB_STATUT = { brouillon: "Brouillon", en_attente: "En attente de validation", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé", refuse: "Refusé" };
   var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
@@ -25,6 +25,129 @@
   }
   function badgeStatut(s) { return '<span class="a-statut a-statut-' + e(s) + '">' + e(LIB_STATUT[s] || s) + "</span>"; }
   function agent(id) { return D.agents.filter(function (a) { return a.id === id; })[0]; }
+
+  /* ====================================================================== V7 : SUIVI DES PROSPECTS */
+  function norm(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+  /* Numéro au format WhatsApp (international, sans « + »). Un numéro marocain en 06… / 07… devient 212… */
+  function numWa(tel) {
+    var d = String(tel || "").replace(/\D/g, "");
+    if (/^00/.test(d)) d = d.slice(2);
+    else if (/^0\d{9}$/.test(d)) d = "212" + d.slice(1);
+    return d;
+  }
+  function relanceDue(p) { return !!p.date_relance && p.date_relance <= aujourdhui() && p.statut !== "Vente"; }
+  function dansJours(j) { var d = new Date(); d.setDate(d.getDate() + j); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  /* Budget saisi librement ou issu de « Votre recherche » : « 3 à 5 M DH », « Jusqu’à 3 000 000 DH », « À partir de 1 000 000 DH »… */
+  function bornesBudget(s) {
+    var t = String(s || "").replace(/[  ]/g, " ");
+    t = t.replace(/(\d)\s(?=\d{3}(\D|$))/g, "$1").replace(/(\d),(\d)/g, "$1.$2").replace(/(\d)\s(?=\d{3}(\D|$))/g, "$1");
+    var nb = t.match(/\d+(\.\d+)?/g) || [], mult = /(^|\s)m(\s|$)|million/i.test(t) ? 1e6 : 1;
+    nb = nb.map(function (x) { x = parseFloat(x); return x < 1000 ? x * mult : x; });
+    if (!nb.length) return null;
+    if (/partir|minimum|plus de/i.test(t)) return { min: nb[0], max: Infinity };
+    if (nb.length >= 2) return { min: Math.min(nb[0], nb[1]), max: Math.max(nb[0], nb[1]) };
+    return { min: 0, max: nb[0] };
+  }
+  /* Prospects dont les critères (ville, type, budget) correspondent à un bien à vendre. Les prospects sans aucun critère sont ignorés. */
+  function correspondances(b) {
+    if (!b || (b.transaction || "vente") !== "vente" || ["publie", "sous-offre", "brouillon"].indexOf(b.statut) === -1) return [];
+    var prix = n(b.prix), lieu = norm(b.ville + " " + (b.quartier || "")), type = norm(b.type);
+    return D.prospects.filter(function (p) {
+      if (p.statut === "Vente") return false;
+      var v = norm(p.ville_recherche), t = norm(p.type_recherche), bud = bornesBudget(p.budget), criteres = 0;
+      if (v) { criteres++; if (lieu.indexOf(v) === -1 && !norm(b.ville).split(" ").some(function (m) { return m.length > 2 && v.indexOf(m) !== -1; })) return false; }
+      if (t && t !== "investissement" && t !== "indifferent") { criteres++; if (type.indexOf(t) === -1 && t.indexOf(type) === -1) return false; }
+      if (bud && prix) { criteres++; if (prix > bud.max * 1.1 || prix < bud.min * 0.9) return false; }
+      return criteres > 0;
+    });
+  }
+  var MODELES = [
+    { id: "premier", nom: "Premier contact", texte: function (p) { return "Bonjour " + nomAffiche(p) + ", ici Nassiri Real Estate à Marrakech. Merci pour votre demande. Pouvons-nous en parler quelques minutes pour bien comprendre votre projet ?"; } },
+    { id: "relance", nom: "Relance", texte: function (p) { return "Bonjour " + nomAffiche(p) + ", je reviens vers vous au sujet de votre projet immobilier. Avez-vous eu le temps d’y réfléchir ? Je reste à votre disposition."; } },
+    { id: "visite", nom: "Proposer une visite", texte: function (p) { return "Bonjour " + nomAffiche(p) + ", souhaitez-vous que nous organisions une visite ? Dites-moi les jours et les horaires qui vous conviennent, nous nous adapterons."; } },
+    { id: "apres-visite", nom: "Après une visite", texte: function (p) { return "Bonjour " + nomAffiche(p) + ", merci pour votre visite. Qu’en avez-vous pensé ? Je peux vous envoyer plus d’informations ou organiser une seconde visite."; } }
+  ];
+  function nomAffiche(p) { return String(p.nom || "").replace(/^Exemple — /, ""); }
+
+  /* ====================================================================== V8 : CODE PIN DES AGENTS + CARNET DE SAMSAR */
+  var LIEN_AGENT = function () { return new URL("agent.html", location.href).href; };
+  function copierTexte(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t).then(function () { return true; }, function () { return false; });
+    return new Promise(function (ok) {
+      var z = document.createElement("textarea"); z.value = t; z.setAttribute("readonly", ""); z.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(z); z.select(); var r = false; try { r = document.execCommand("copy"); } catch (x) {} z.remove(); ok(r);
+    });
+  }
+  function messageAgent(ag, pin, nouveau) {
+    var nom = String(ag.nom || "").replace(/^Exemple — /, "");
+    return (nouveau
+      ? "Bonjour " + nom + ", voici votre nouveau code PIN pour l’Espace Agent Nassiri Real Estate. L’ancien code ne fonctionne plus."
+      : "Bonjour " + nom + ", bienvenue chez Nassiri Real Estate ! Votre Espace Agent est prêt. Vous pouvez y déposer vos biens et suivre vos demandes.") +
+      "\n\nLien : " + LIEN_AGENT() + "\nIdentifiant : " + ag.email + "\nCode PIN : " + pin +
+      "\n\nGardez ce code pour vous. En cas de perte, contactez-nous : nous vous en enverrons un nouveau.";
+  }
+  /* Boîte affichée une seule fois après la création d'un agent ou d'un nouveau code */
+  function boiteCodeAgent(ag, pin, nouveau) {
+    return new Promise(function (fini) {
+      var texte = messageAgent(ag, pin, nouveau), num = numWa(ag.whatsapp || ag.telephone);
+      var m = document.createElement("div"); m.className = "a-modale";
+      m.innerHTML = '<div class="a-modale-boite a-modale-large" role="dialog" aria-modal="true" aria-labelledby="a-pin-titre"><h2 id="a-pin-titre">' + (nouveau ? "Nouveau code créé" : "Agent créé") + " : " + e(ag.nom) + "</h2>" +
+        '<p class="a-pin-valeur" aria-label="Code PIN">' + e(pin) + "</p>" +
+        '<p class="a-aide"><strong>Ce code ne sera plus affiché.</strong> Envoyez-le maintenant. S’il est perdu, utilisez « Nouveau code » sur la fiche de l’agent.</p>' +
+        '<label class="a-etiquette" for="a-pin-message">Message à envoyer</label><textarea id="a-pin-message" rows="9" readonly>' + e(texte) + "</textarea>" +
+        '<div class="a-modale-actions">' + (num ? '<button class="btn btn-vert" data-r="wa">Ouvrir dans WhatsApp</button>' : "") + '<button class="btn btn-ligne" data-r="copie">Copier le message</button><button class="btn btn-ligne" data-r="fin">Fermer</button></div>' +
+        (num ? "" : '<p class="a-aide">Aucun numéro WhatsApp ou téléphone pour cet agent : copiez le message et envoyez-le vous-même.</p>') + "</div>";
+      m.addEventListener("click", function (ev) {
+        var b = ev.target.closest("[data-r]");
+        if (b && b.dataset.r === "wa") window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(texte), "_blank", "noopener");
+        else if (b && b.dataset.r === "copie") copierTexte(texte).then(function (ok) { A.message(ok ? "Message copié." : "Copie impossible : sélectionnez le texte à la main."); });
+        else if (b || ev.target === m) { m.remove(); fini(); }
+      });
+      document.body.appendChild(m);
+    });
+  }
+  var STATUTS_SAMSAR = ["À contacter", "Contacté", "Actif", "Partenaire", "Inactif"];
+  function samsar(id) { return (D.samsar || []).filter(function (s) { return s.id === id; })[0]; }
+  function relanceSamsarDue(s) { return !!s.date_relance && s.date_relance <= aujourdhui() && s.statut !== "Inactif"; }
+  var MODELES_SAMSAR = [
+    { id: "premier", nom: "Premier contact", texte: function (s) { return "Bonjour " + nomAffiche(s) + ", ici Nassiri Real Estate à Marrakech. Nous développons notre réseau de partenaires. Aurions-nous l’occasion d’échanger quelques minutes sur une collaboration ?"; } },
+    { id: "biens", nom: "Demander des biens", texte: function (s) { return "Bonjour " + nomAffiche(s) + ", avez-vous en ce moment des biens à nous proposer (villas, appartements, riads, terrains) ? Nous avons des clients à la recherche de biens."; } },
+    { id: "relance", nom: "Relance", texte: function (s) { return "Bonjour " + nomAffiche(s) + ", je reviens vers vous pour savoir si vous avez de nouveaux biens à nous confier. Je reste à votre disposition."; } },
+    { id: "merci", nom: "Remerciement", texte: function (s) { return "Bonjour " + nomAffiche(s) + ", merci pour votre confiance et pour le bien transmis. Nous revenons vers vous très vite avec nos retours."; } }
+  ];
+  function texteBienProspect(p, b) {
+    return "Bonjour " + nomAffiche(p) + ", un bien pourrait vous intéresser : " + b.titre + " (" + b.type + " à " + b.ville + (b.quartier ? ", " + b.quartier : "") + ") — " + A.prixAffiche(b) + ".\nDétails et photos : " + A.lienBien(b);
+  }
+  function ouvrirWhatsApp(p, texte) {
+    var num = numWa(p.telephone);
+    if (!num) { A.message("Ce prospect n’a pas de numéro de téléphone."); return false; }
+    window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(texte), "_blank", "noopener");
+    return true;
+  }
+  function blocSuivi(p) {
+    var num = numWa(p.telephone), mod = MODELES[0];
+    return '<section class="a-bloc" id="a-suivi"><h2>Suivi</h2>' +
+      '<p class="a-aide" id="a-relance-info">' + (p.date_relance ? "Prochaine relance : <strong>" + e(A.dateFr(p.date_relance)) + "</strong>" + (relanceDue(p) ? " (à faire)" : "") : "Aucune relance prévue.") + "</p>" +
+      '<div class="a-puces a-relances"><span class="a-etiquette">Relancer dans</span>' +
+        [["Demain", 1], ["3 jours", 3], ["1 semaine", 7], ["2 semaines", 14]].map(function (r) { return '<button type="button" class="puce" data-action="relance" data-jours="' + r[1] + '">' + r[0] + "</button>"; }).join("") +
+        '<button type="button" class="puce" data-action="relance" data-jours="0">Aucune</button></div>' +
+      '<h3 class="a-sous-titre">Message WhatsApp</h3>' +
+      (num ? '<div class="a-wa"><label class="sr" for="a-wa-modele">Modèle de message</label><select id="a-wa-modele" data-action-change="modele-wa">' + MODELES.map(function (m) { return option(m.id, m.nom, mod.id); }).join("") + "</select>" +
+        '<label class="sr" for="a-wa-texte">Texte du message</label><textarea id="a-wa-texte" rows="4">' + e(mod.texte(p)) + '</textarea>' +
+        '<button type="button" class="btn btn-vert" data-action="wa-prospect">Ouvrir dans WhatsApp</button></div><p class="a-aide">Vous pouvez modifier le texte avant l’envoi. L’échange est ajouté à l’historique.</p>'
+        : '<p class="a-vide">Ajoutez un numéro de téléphone pour envoyer un message WhatsApp.</p>') + "</section>";
+  }
+  function blocInteresses(b) {
+    var l = correspondances(b);
+    return '<section class="a-bloc" id="a-interesses"><h2>' + ico("personnes") + " Prospects intéressés</h2>" +
+      (l.length ? '<p class="a-aide">Ce bien correspond à <strong>' + l.length + (l.length > 1 ? " prospects" : " prospect") + "</strong> d’après leurs critères (ville, type de bien, budget).</p>" +
+        l.map(function (p) {
+          return '<div class="a-ligne a-ligne-fixe"><span class="a-pastille">' + e(nomAffiche(p).charAt(0).toUpperCase() || "?") + '</span><span class="a-ligne-texte"><strong>' + e(nomAffiche(p)) + "</strong><small>" +
+            e([p.type_recherche, p.ville_recherche, p.budget].filter(Boolean).join(" · ")) + '</small></span><button type="button" class="btn btn-ligne" data-action="aller" data-vue="prospect" data-id="' + e(p.id) + '">Fiche</button>' +
+            (numWa(p.telephone) ? '<button type="button" class="btn btn-vert" data-action="wa-bien" data-prospect="' + e(p.id) + '" data-bien="' + e(b.id) + '">WhatsApp</button>' : "") + "</div>";
+        }).join("")
+        : '<p class="a-vide">Aucun prospect ne correspond pour le moment.</p>') + "</section>";
+  }
 
   function confirmer(titre, texte, bouton) {
     return new Promise(function (ok) {
@@ -49,43 +172,7 @@
   }
   function charger() { return A.api("donnees").then(function (r) { D = r; try { sessionStorage.removeItem("nassiri_catalogue"); } catch (x) {} }); }
   function indicateur() { var i = document.getElementById("a-occupe"); if (i) { i.textContent = etat.occupe; i.hidden = !etat.occupe; } }
-  function aller(vue, id) { if (etat.notifOuvertes) marquerVentesVues(); etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; etat.dernierMdp = null; etat.notifOuvertes = false; rendre(); window.scrollTo(0, 0); }
-  function dernierVuVentes(valeur) {
-    var CLE = "nassiri_notif_vu_ventes";
-    if (valeur !== undefined) { try { localStorage.setItem(CLE, valeur); } catch (x) {} return; }
-    try { return localStorage.getItem(CLE) || ""; } catch (x) { return ""; }
-  }
-  /* On ne marque les ventes comme vues qu’à la FERMETURE du panneau (pas à l’ouverture), pour que l’admin ait le temps de les voir au moins une fois. */
-  function marquerVentesVues() {
-    var max = ""; D.biens.filter(function (b) { return b.statut === "vendu"; }).forEach(function (b) { if (b.date_maj > max) max = b.date_maj; });
-    if (max) dernierVuVentes(max);
-  }
-  /* Ce que la cloche doit signaler sans avoir à ouvrir la fiche de l’agent : biens à valider (toujours, tant qu’ils le sont) et ventes récentes (jusqu’à ce qu’on ouvre la cloche). */
-  function notifications() {
-    var attente = D.biens.filter(function (b) { return b.statut === "en_attente"; }).sort(recent);
-    var vu = dernierVuVentes();
-    var ventes = D.biens.filter(function (b) { return b.statut === "vendu" && b.date_maj && (!vu || b.date_maj > vu); }).sort(recent);
-    return { attente: attente, ventes: ventes, total: attente.length + ventes.length };
-  }
-  function ligneNotif(b, libelle) {
-    var ag = b.agent_id ? agent(b.agent_id) : null;
-    return '<button type="button" class="a-notif-ligne" data-action="notif-item" data-id="' + e(b.id) + '"><span class="a-notif-titre">' + e(b.titre || "Bien") + "</span><span class=\"a-notif-detail\">" + libelle + (ag ? " · apporté par " + e(ag.nom) : "") + " · " + e(A.dateFr(b.date_maj, true)) + "</span></button>";
-  }
-  function panneauNotifications(notif) {
-    var corps = (notif.attente.length ? '<p class="a-notif-soustitre">À valider</p>' + notif.attente.map(function (b) { return ligneNotif(b, "En attente de validation"); }).join("") : "") +
-      (notif.ventes.length ? '<p class="a-notif-soustitre">Vendu récemment</p>' + notif.ventes.map(function (b) { return ligneNotif(b, "Vendu"); }).join("") : "");
-    return '<div class="a-notif-panneau" role="menu">' + (notif.total ? corps : '<p class="a-vide">Aucune notification pour le moment.</p>') + "</div>";
-  }
-  function lienAgentHtml() { return location.origin + location.pathname.replace(/admin\.html.*$/, "agent.html"); }
-  function messageBienvenueAgent(a, mdp) {
-    return "Bonjour " + a.nom + ",\n\nVoici vos accès à l’espace agent Nassiri Real Estate :\n\nLien : " + lienAgentHtml() + "\nE-mail : " + a.email + "\nMot de passe : " + mdp +
-      "\n\nVous pourrez y déposer vos biens ; ils seront vérifiés puis publiés par l’agence avant de devenir visibles sur le site.";
-  }
-  function motDePasseAleatoire() {
-    var car = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", s = "";
-    for (var i = 0; i < 10; i++) s += car[Math.floor(Math.random() * car.length)];
-    return s;
-  }
+  function aller(vue, id) { etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; rendre(); window.scrollTo(0, 0); }
 
   /* ====================================================================== CONNEXION */
   function vueConnexion(erreur) {
@@ -111,6 +198,7 @@
     if (att) l.push({ t: att + (att > 1 ? " biens d’agents à valider" : " bien d’agent à valider"), i: "cle", v: "biens", s: "", filtreBien: "en_attente" });
     D.prospects.filter(function (p) { return p.date_relance && p.date_relance <= t && p.statut !== "Vente"; })
       .forEach(function (p) { l.push({ t: "Relancer " + p.nom + " (prévu le " + A.dateFr(p.date_relance) + ")", i: "telephone", v: "prospect", id: p.id }); });
+    (D.samsar || []).filter(relanceSamsarDue).forEach(function (s) { l.push({ t: "Relancer le samsar " + s.nom + " (prévu le " + A.dateFr(s.date_relance) + ")", i: "telephone", v: "samsar", id: s.id }); });
     D.biens.filter(function (b) { return b.statut === "brouillon"; }).forEach(function (b) { l.push({ t: "Brouillon à terminer : " + b.titre, i: "crayon", v: "bien", id: b.id }); });
     D.biens.filter(function (b) { return (b.statut === "publie" || b.statut === "sous-offre") && !photosDe(b.id).length; })
       .forEach(function (b) { l.push({ t: "Bien publié sans photo : " + b.titre, i: "photo", v: "bien", id: b.id }); });
@@ -131,6 +219,7 @@
     var actions = actionsAFaire();
     var top = D.biens.slice().sort(function (a, b) { return n(b.vues) - n(a.vues); }).filter(function (b) { return n(b.vues) > 0; }).slice(0, 5);
     return '<div class="a-tuiles">' + tuile(actifs, "Biens actifs", "maison", "biens") + tuile(vendus, "Biens vendus", "coche", "biens") + tuile(D.prospects.length, "Prospects", "personnes", "prospects") +
+      '<button class="a-tuile" data-action="aller" data-vue="prospects" data-filtre-prospect="__relance">' + ico("horloge") + "<strong>" + D.prospects.filter(relanceDue).length + "</strong><span>À relancer</span></button>" +
       tuile(D.visites.length, "Demandes de visite", "calendrier", "demandes", "visites") + tuile(favoris, "Favoris (anonymes)", "coeur", "biens") + "</div>" +
       '<div class="a-deux"><section class="a-bloc"><h2>Actions à effectuer</h2>' +
         (actions.length ? actions.map(function (a) { return '<button class="a-ligne" data-action="aller" data-vue="' + a.v + '"' + (a.id ? ' data-id="' + e(a.id) + '"' : "") + (a.s ? ' data-sous="' + a.s + '"' : "") + (a.filtreBien ? ' data-filtre-bien="' + e(a.filtreBien) + '"' : "") + '><span class="a-pastille a-pastille-or">' + ico(a.i) + '</span><span class="a-ligne-texte">' + e(a.t) + "</span>" + ico("droite") + "</button>"; }).join("") : '<p class="a-vide">Tout est à jour.</p>') +
@@ -154,7 +243,7 @@
         return '<article class="a-bien"><button class="a-bien-photo" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '" aria-label="Modifier ' + e(b.titre) + '">' + A.photo(ph[0] && ph[0].url, "160px", "") + "</button>" +
           '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + ((b.transaction === "location-longue" || b.transaction === "location-courte") ? '<span class="a-statut a-statut-une">' + (LIB_TRANSACTION[b.transaction] || "Location") + "</span>" : "") + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (coeur ? '<span class="a-statut a-statut-une">' + ico("coeur") + " Coup de cœur</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + (ag ? '<span class="a-statut a-statut-p">' + ico("personnes") + " " + e(ag.nom.replace(/^Exemple — /, "")) + "</span>" : "") + "</div>" +
           "<h3>" + e(b.titre) + "</h3><p>" + e(b.type) + " · " + e(b.ville) + (b.quartier ? " · " + e(b.quartier) : "") + " · Réf. " + e(b.id) + "</p>" +
-          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p>" +
+          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span>" + (correspondances(b).length ? '<span class="a-mesure" title="Prospects dont les critères correspondent à ce bien">' + ico("personnes") + " " + correspondances(b).length + "</span>" : "") + "</p>" +
           (b.statut === "refuse" && b.motif_refus ? '<div class="a-refus"><strong>' + ico("info") + " " + e(b.motif_refus) + "</strong>" + (b.commentaire_refus ? "<p>" + e(b.commentaire_refus) + "</p>" : "") + "</div>" : "") + "</div>" +
           '<div class="a-bien-actions">' + (b.statut === "en_attente"
             ? '<button class="btn btn-vert" data-action="valider-bien" data-id="' + e(b.id) + '">' + ico("coche") + " Valider</button><button class=\"btn btn-ligne est-danger\" data-action=\"ouvrir-refus\" data-id=\"" + e(b.id) + '">' + ico("fermer") + " Refuser</button>"
@@ -187,7 +276,7 @@
     } else if (!nouveau && b.statut === "refuse" && b.motif_refus) {
       banniereAgent = '<section class="a-bloc a-refus"><strong>' + ico("info") + " Refusé — " + e(b.motif_refus) + "</strong>" + (b.commentaire_refus ? "<p>" + e(b.commentaire_refus) + "</p>" : "") + "</section>";
     }
-    return banniereAgent + '<form id="form-bien" class="a-form" novalidate>' +
+    return banniereAgent + (nouveau ? "" : blocInteresses(b)) + '<form id="form-bien" class="a-form" novalidate>' +
       '<section class="a-bloc"><h2>L’essentiel</h2><div class="a-grille">' +
         champ("titre", "Titre de l’annonce *", b.titre, 'placeholder="ex. Villa contemporaine avec piscine" required', "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type">' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
@@ -283,32 +372,403 @@
     var nouveau = !etat.id, a = nouveau ? { actif: "oui" } : agent(etat.id);
     if (!a) return '<p class="a-vide a-bloc">Agent introuvable.</p>';
     var mesBiens = nouveau ? [] : D.biens.filter(function (b) { return b.agent_id === a.id; });
-    var boiteBienvenue = "";
-    if (!nouveau && etat.dernierMdp) {
-      var msg = messageBienvenueAgent(a, etat.dernierMdp), num = String(a.whatsapp || a.telephone || "").replace(/\D/g, "");
-      boiteBienvenue = '<section class="a-bloc a-note"><div><strong>' + ico("cle") + " Codes d’accès pour " + e(a.nom) + '</strong><p>Mot de passe actuel : <code>' + e(etat.dernierMdp) + '</code> — notez-le ou envoyez-le maintenant, il ne sera plus jamais réaffiché ensuite.</p>' +
-        '<textarea class="a-message-bienvenue" readonly rows="6">' + e(msg) + '</textarea>' +
-        '<div class="a-form-pied">' + (num ? '<a class="btn btn-vert" href="' + A.lienWhatsApp(num, msg) + '" target="_blank" rel="noopener">' + ico("telephone") + " Envoyer sur WhatsApp</a>" : '<span class="a-aide">Ajoutez un numéro WhatsApp à cet agent pour activer cet envoi.</span>') +
-        '<a class="btn btn-ligne" href="mailto:' + e(a.email) + "?subject=" + encodeURIComponent("Vos accès — Espace Agent Nassiri Real Estate") + "&body=" + encodeURIComponent(msg) + '">' + ico("courrier") + " Envoyer par e-mail</a>" +
-        '<button type="button" class="btn btn-ligne" data-action="copier-message">' + ico("document") + " Copier le message</button></div></div></section>";
-    }
-    return boiteBienvenue + '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
+    return '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
       champ("nom", "Nom *", a.nom, "required", "plein") + champ("email", "E-mail (identifiant de connexion) *", a.email, 'type="email" required') + champ("telephone", "Téléphone", a.telephone, 'type="tel"') +
-      champ("whatsapp", "WhatsApp (numéro international sans +, ex. 212600000000)", a.whatsapp, "") + champ("motDePasse", nouveau ? "Mot de passe (8 caractères minimum) *" : "Nouveau mot de passe (laisser vide pour ne pas changer)", "", 'type="password" autocomplete="new-password"') + "</div>" +
-      (nouveau ? "" : '<label class="a-bascule"><input type="checkbox" name="actif"' + (a.actif === "oui" ? " checked" : "") + "><span></span><div><strong>Accès actif</strong><small>Désactivez pour bloquer sa connexion sans supprimer ses biens.</small></div></label>") +
-      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button><button type="button" class="btn btn-ligne" data-action="renvoyer-codes" data-id="' + e(a.id) + '">' + ico("cle") + " Renvoyer de nouveaux codes</button>") + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
-      (nouveau ? "" : '<section class="a-bloc"><h2>Biens apportés (' + mesBiens.length + ")</h2>" +
-        (mesBiens.length ? mesBiens.map(function (b) { return '<button class="a-ligne" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '"><span class="a-ligne-texte"><strong>' + e(b.titre) + "</strong><small>" + e(b.id) + "</small></span>" + badgeStatut(b.statut) + "</button>"; }).join("") : '<p class="a-vide">Aucun bien pour le moment.</p>') + "</section>") + "</div>";
+      champ("whatsapp", "WhatsApp (avec l’indicatif pays si possible)", a.whatsapp, "") + "</div>" +
+      (nouveau ? '<p class="a-aide">Un <strong>code PIN à 6 chiffres</strong> sera créé automatiquement. Vous pourrez l’envoyer tout de suite à l’agent par WhatsApp.</p>' : "") +
+      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
+      (nouveau ? "" : '<div><section class="a-bloc"><h2>Accès</h2><p class="a-aide">Statut : <span class="a-statut ' + (a.actif === "oui" ? "a-statut-publie" : "a-statut-brouillon") + '">' + (a.actif === "oui" ? "Actif" : "Désactivé") + "</span></p>" +
+        '<div class="a-contacts"><button type="button" class="btn btn-ligne" data-action="agent-actif" data-id="' + e(a.id) + '">' + (a.actif === "oui" ? "Désactiver l’accès" : "Réactiver l’accès") + '</button>' +
+        '<button type="button" class="btn btn-vert" data-action="nouveau-code" data-id="' + e(a.id) + '">Nouveau code PIN</button></div>' +
+        '<p class="a-aide">« Nouveau code PIN » crée un nouveau code (l’ancien ne fonctionne plus) et prépare le message WhatsApp. Les codes ne sont jamais conservés en clair.</p></section>' +
+        '<section class="a-bloc"><h2>Biens apportés (' + mesBiens.length + ")</h2>" +
+        (mesBiens.length ? mesBiens.map(function (b) { return '<button class="a-ligne" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '"><span class="a-ligne-texte"><strong>' + e(b.titre) + "</strong><small>" + e(b.id) + "</small></span>" + badgeStatut(b.statut) + "</button>"; }).join("") : '<p class="a-vide">Aucun bien pour le moment.</p>') + "</section></div>") + "</div>";
+  }
+
+  /* ====================================================================== SAMSAR */
+  function vueSamsars() {
+    var q = etat.recherche.toLowerCase(), relance = etat.filtreSamsar === "__relance", tous = D.samsar || [], nbRel = tous.filter(relanceSamsarDue).length;
+    var l = tous.filter(function (s) { return (!etat.filtreSamsar || (relance ? relanceSamsarDue(s) : s.statut === etat.filtreSamsar)) && (!q || (s.nom + " " + s.telephone + " " + s.zone + " " + s.specialite).toLowerCase().indexOf(q) !== -1); })
+      .sort(function (x, y) { return relance ? String(x.date_relance).localeCompare(String(y.date_relance)) : String(y.date_maj).localeCompare(String(x.date_maj)); });
+    return '<div class="a-outils"><div class="a-puces"><button class="puce' + (relance ? " est-actif" : "") + '" data-action="filtre-samsar" data-v="__relance">' + ico("horloge") + " À relancer (" + nbRel + ")</button></div></div>" +
+      '<div class="a-pipeline">' + [""].concat(STATUTS_SAMSAR).map(function (st) {
+        var c = st ? tous.filter(function (s) { return s.statut === st; }).length : tous.length;
+        return '<button class="a-etape' + (etat.filtreSamsar === st && !relance ? " est-actif" : "") + '" data-action="filtre-samsar" data-v="' + e(st) + '"><strong>' + c + "</strong><span>" + (st || "Tous") + "</span></button>";
+      }).join("") + "</div>" +
+      '<div class="a-outils"><input class="a-recherche" type="search" placeholder="Rechercher un samsar (nom, zone, téléphone)…" value="' + e(etat.recherche) + '" data-recherche aria-label="Rechercher un samsar"></div>' +
+      (l.length ? '<section class="a-bloc a-bloc-liste">' + l.map(function (s) {
+        var du = relanceSamsarDue(s);
+        return '<button class="a-ligne" data-action="aller" data-vue="samsar" data-id="' + e(s.id) + '"><span class="a-pastille">' + e(nomAffiche(s).charAt(0).toUpperCase() || "?") + '</span><span class="a-ligne-texte"><strong>' + e(s.nom) + "</strong><small>" +
+          e([s.specialite, s.zone, s.telephone].filter(Boolean).join(" · ") || "À compléter") + '</small></span><span class="a-prospect-fin"><span class="a-statut a-statut-p">' + e(s.statut) + "</span>" +
+          (s.date_relance ? '<small class="' + (du ? "est-du" : "") + '">' + ico("horloge") + " Relance " + e(A.dateFr(s.date_relance)) + "</small>" : "") + "</span></button>";
+      }).join("") + "</section>" : '<p class="a-vide a-bloc">' + (tous.length ? "Aucun samsar dans cette liste." : "Aucun samsar pour le moment. Ajoutez vos premiers contacts : plus votre réseau est large, plus vous recevrez de biens.") + "</p>");
+  }
+  function blocSuiviSamsar(s) {
+    var num = numWa(s.telephone), mod = MODELES_SAMSAR[0];
+    return '<section class="a-bloc" id="a-suivi"><h2>Suivi</h2>' +
+      '<p class="a-aide" id="a-relance-info">' + (s.date_relance ? "Prochaine relance : <strong>" + e(A.dateFr(s.date_relance)) + "</strong>" + (relanceSamsarDue(s) ? " (à faire)" : "") : "Aucune relance prévue.") + "</p>" +
+      '<div class="a-puces a-relances"><span class="a-etiquette">Relancer dans</span>' +
+        [["Demain", 1], ["3 jours", 3], ["1 semaine", 7], ["2 semaines", 14]].map(function (r) { return '<button type="button" class="puce" data-action="relance-samsar" data-jours="' + r[1] + '">' + r[0] + "</button>"; }).join("") +
+        '<button type="button" class="puce" data-action="relance-samsar" data-jours="0">Aucune</button></div>' +
+      '<h3 class="a-sous-titre">Message WhatsApp</h3>' +
+      (num ? '<div class="a-wa"><label class="sr" for="a-wa-modele">Modèle de message</label><select id="a-wa-modele" data-action-change="modele-wa-samsar">' + MODELES_SAMSAR.map(function (m) { return option(m.id, m.nom, mod.id); }).join("") + "</select>" +
+        '<label class="sr" for="a-wa-texte">Texte du message</label><textarea id="a-wa-texte" rows="4">' + e(mod.texte(s)) + '</textarea><button type="button" class="btn btn-vert" data-action="wa-samsar">Ouvrir dans WhatsApp</button></div>' +
+        '<p class="a-aide">Vous pouvez modifier le texte avant l’envoi. La date du dernier contact est mise à jour.</p>'
+        : '<p class="a-vide">Ajoutez un numéro de téléphone pour envoyer un message WhatsApp.</p>') + "</section>";
+  }
+  function vueSamsar() {
+    var nouveau = !etat.id, s = nouveau ? { statut: "À contacter" } : samsar(etat.id);
+    if (!s) return '<p class="a-vide a-bloc">Samsar introuvable.</p>';
+    return '<div class="a-deux a-deux-large"><form id="form-samsar" class="a-bloc a-form" novalidate><h2>Coordonnées et activité</h2>' +
+      '<div class="a-grille">' + champ("nom", "Nom *", s.nom, "required", "plein") + champ("telephone", "Téléphone / WhatsApp", s.telephone, 'type="tel" placeholder="ex. 0600000000 ou +212600000000"') +
+        champ("zone", "Zone ou quartiers", s.zone, 'placeholder="ex. Guéliz, Palmeraie"') + champ("specialite", "Spécialité", s.specialite, 'placeholder="ex. villas, terrains, riads"') +
+        champ("source", "Comment l’avez-vous connu ?", s.source, "") + champ("commission", "Commission convenue", s.commission, 'placeholder="ex. 2 % du prix de vente"') +
+        '<div><label for="f-statut">Statut</label><select id="f-statut" name="statut">' + STATUTS_SAMSAR.map(function (st) { return option(st, st, s.statut); }).join("") + "</select></div>" +
+        champ("date_relance", "Date de relance", s.date_relance, 'type="date"') + champ("dernier_contact", "Dernier contact", s.dernier_contact, 'type="date"') +
+        '<div class="plein"><label for="f-notes">Notes privées</label><textarea id="f-notes" name="notes" rows="4" placeholder="Biens évoqués, fiabilité, conditions…">' + e(s.notes || "") + "</textarea></div></div>" +
+      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-samsar" data-id="' + e(s.id) + '">Supprimer ce samsar</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div>' +
+      (nouveau ? "" : '<p class="a-aide">Fiche créée le ' + e(A.dateFr(s.date_creation, true)) + "</p>") + "</form>" +
+      (nouveau ? "" : "<div>" + blocSuiviSamsar(s) + "</div>") + "</div>";
+  }
+
+  /* ====================================================================== V9 : IMPORT D'ANNONCE IA */
+  var IMP_MAX_PHOTOS = 40, IMP_MAX_ZIP = 120 * 1024 * 1024, IMP_MAX_JSON = 1024 * 1024;
+  var IMP_CHAMPS_TEXTE = ["titre", "type", "transaction", "ville", "quartier", "description", "juridique", "adresse_privee", "notes_privees"];
+  var IMP_CHAMPS_NOMBRE = ["prix", "surface", "terrain", "chambres", "sdb"];
+  var IMP_BASCULES = ["prix_sur_demande", "juridique_verifie", "exclusivite", "a_la_une", "coup_de_coeur"];
+  var IMP_CONNUS = IMP_CHAMPS_TEXTE.concat(IMP_CHAMPS_NOMBRE, IMP_BASCULES, ["equipements", "statut", "devise", "reference", "photos", "a_verifier", "format", "version", "bien"]);
+  var CONSIGNE_IA = [
+    "Tu prépares une annonce pour mon site immobilier Nassiri Real Estate (Maroc). Je te donne les informations du bien et des photos.",
+    "RÈGLES : n'invente RIEN. Une information absente reste vide (\"\" ou null) et tu la listes dans \"a_verifier\". Rédige en français, ton professionnel et sobre.",
+    "LIVRABLE : un fichier ZIP contenant annonce.json et un dossier photos/ (JPEG, 1800 px max, nommés 01.jpg, 02.jpg…). Si tu ne peux pas créer de ZIP, donne-moi uniquement le JSON ci-dessous, dans un bloc de code.",
+    "FORMAT annonce.json :",
+    "{",
+    "  \"format\": \"nassiri-annonce\", \"version\": 1,",
+    "  \"bien\": {",
+    "    \"titre\": \"\", \"type\": \"Villa|Appartement|Riad|Maison|Terrain\", \"transaction\": \"vente|location-longue|location-courte\",",
+    "    \"prix\": 0, \"prix_sur_demande\": false, \"ville\": \"\", \"quartier\": \"\",",
+    "    \"surface\": 0, \"terrain\": 0, \"chambres\": 0, \"sdb\": 0,",
+    "    \"description\": \"\", \"equipements\": [\"Piscine\"], \"juridique\": \"\",",
+    "    \"adresse_privee\": \"\", \"notes_privees\": \"\"",
+    "  },",
+    "  \"photos\": [ { \"fichier\": \"photos/01.jpg\", \"principale\": true } ],",
+    "  \"a_verifier\": [\"…\"]",
+    "}",
+    "Notes : prix en dirhams (DH), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de \"photos\" est l'ordre d'affichage."
+  ].join("\n");
+
+  function nbImp(v) {
+    if (typeof v === "number") return isFinite(v) ? v : 0;
+    var s = String(v === null || v === undefined ? "" : v).replace(/[\s  ]/g, "").replace(",", ".").replace(/[^0-9.\-]/g, "");
+    return parseFloat(s) || 0;
+  }
+  function ouiImp(v) { return v === true || /^(oui|true|1|yes)$/i.test(String(v).trim()) ? "oui" : "non"; }
+  function nettoyerTexteImp(v, max) { return String(v === null || v === undefined ? "" : v).replace(/<[^>]*>/g, "").replace(/\r\n?/g, "\n").trim().slice(0, max || 6000); }
+
+  function lireJsonImp(texte) {
+    var t = String(texte || "").replace(/^﻿/, "").trim();
+    if (!t) throw new Error("Collez d’abord le texte de l’annonce.");
+    var fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i); if (fence) t = fence[1].trim();
+    var a = t.indexOf("{"), z = t.lastIndexOf("}");
+    if (a === -1 || z <= a) throw new Error("Ce texte ne ressemble pas à une annonce (aucun bloc { … } trouvé).");
+    t = t.slice(a, z + 1);
+    try { return JSON.parse(t); } catch (x1) {
+      try { return JSON.parse(t.replace(/[“”]/g, '"')); }
+      catch (x2) { throw new Error("Le texte n’est pas un JSON valide : " + x1.message); }
+    }
+  }
+
+  /* Transforme le JSON reçu en annonce propre + liste d'alertes de lecture */
+  function normaliserImp(brut) {
+    var al = [], src = (brut && typeof brut === "object" && brut.bien && typeof brut.bien === "object") ? brut.bien : brut;
+    if (!src || typeof src !== "object" || Array.isArray(src)) throw new Error("Structure inattendue : l’annonce doit être un objet JSON.");
+    var b = { statut: "brouillon", equipements: "" };
+    IMP_CHAMPS_TEXTE.forEach(function (k) { b[k] = nettoyerTexteImp(src[k], k === "description" ? 6000 : 300); });
+    IMP_CHAMPS_NOMBRE.forEach(function (k) { var v = nbImp(src[k]); b[k] = v > 0 ? String(Math.round(v * 100) / 100) : ""; });
+    IMP_BASCULES.forEach(function (k) { b[k] = ouiImp(src[k]); });
+    var eq = src.equipements instanceof Array ? src.equipements : String(src.equipements || "").split(/[|,;\n]/);
+    b.equipements = eq.map(function (x) { return nettoyerTexteImp(x, 60); }).filter(String).filter(function (x, i, t) { return t.indexOf(x) === i; }).join("|");
+    var tr = norm(b.transaction).replace(/\s+/g, "-");
+    if (!tr) b.transaction = "vente";
+    else if (tr === "location" || tr === "location-longue-duree" || tr === "location-longue") b.transaction = "location-longue";
+    else if (tr === "location-courte" || tr === "location-saisonniere" || tr === "location-courte-duree") b.transaction = "location-courte";
+    else if (tr === "vente") b.transaction = "vente";
+    else al.push({ niveau: "bloquant", texte: "Type de transaction non reconnu : « " + nettoyerTexteImp(src.transaction, 40) + " » (vente, location-longue ou location-courte)." });
+    if (b.transaction !== "vente" && b.transaction !== "location-longue" && b.transaction !== "location-courte") b.transaction = "vente";
+    var t = A.types.filter(function (x) { return norm(x) === norm(b.type); })[0];
+    if (t) b.type = t;
+    else if (b.type) al.push({ niveau: "bloquant", texte: "Type de bien « " + b.type + " » inconnu sur le site. Choisissez-le dans la liste ci-dessous (" + A.types.join(", ") + ")." }), b.type = "";
+    else b.type = "";
+    if (src.devise && !/^(dh|mad|dhs|dirhams?)$/i.test(String(src.devise).trim())) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(src.devise, 10) + " » : le site affiche uniquement des dirhams (DH). Vérifiez le prix." });
+    if (src.statut && norm(src.statut) !== "brouillon") al.push({ niveau: "info", texte: "Le statut du fichier est ignoré : l’annonce arrive toujours en brouillon tant que vous ne cliquez pas sur « Valider et publier »." });
+    Object.keys(src).forEach(function (k) { if (IMP_CONNUS.indexOf(k) === -1) al.push({ niveau: "info", texte: "Champ « " + nettoyerTexteImp(k, 40) + " » ignoré (il n’existe pas sur le site)." }); });
+    var av = (brut && brut.a_verifier) || src.a_verifier;
+    (av instanceof Array ? av : av ? [av] : []).slice(0, 30).forEach(function (x) { var s = nettoyerTexteImp(x, 300); if (s) al.push({ niveau: "attention", texte: "À vérifier : " + s }); });
+    return { bien: b, alertes: al, photosDecl: (brut && brut.photos) || src.photos || null };
+  }
+
+  /* Contrôles de cohérence recalculés à chaque modification */
+  function controlerImp() {
+    var I = etat.imp, b = I.bien, al = [], p = n(b.prix), s = n(b.surface), te = n(b.terrain);
+    if (!b.titre) al.push({ niveau: "bloquant", texte: "Le titre est obligatoire." });
+    if (!b.type) al.push({ niveau: "bloquant", texte: "Choisissez le type de bien." });
+    if (!p && b.prix_sur_demande !== "oui") al.push({ niveau: "publier", texte: "Prix manquant : indiquez-le ou cochez « Prix sur demande » pour pouvoir publier." });
+    if (b.transaction === "vente" && p && p < 100000) al.push({ niveau: "attention", texte: "Prix de vente très bas (" + A.prix(p) + ") : vérifiez qu’il est bien en dirhams." });
+    if (b.transaction === "vente" && p > 200000000) al.push({ niveau: "attention", texte: "Prix très élevé (" + A.prix(p) + ") : vérifiez les zéros." });
+    if (b.transaction === "location-longue" && p > 1000000) al.push({ niveau: "attention", texte: "Loyer mensuel très élevé : vérifiez le montant." });
+    if (s && te && s > te) al.push({ niveau: "attention", texte: "La surface construite (" + s + " m²) dépasse celle du terrain (" + te + " m²)." });
+    if (n(b.chambres) > 30) al.push({ niveau: "attention", texte: "Nombre de chambres inhabituel : vérifiez." });
+    if (!b.ville) al.push({ niveau: "attention", texte: "Ville non renseignée." });
+    if (!b.description) al.push({ niveau: "attention", texte: "Aucune description." });
+    if (!I.photos.length) al.push({ niveau: "attention", texte: "Aucune photo : vous pourrez en ajouter ensuite depuis la fiche du bien." });
+    var tn = norm(b.titre).replace(/[^a-z0-9]/g, "");
+    var dbl = D.biens.filter(function (x) { return (tn && norm(x.titre).replace(/[^a-z0-9]/g, "") === tn) || (n(x.prix) && n(x.prix) === p && norm(x.ville) === norm(b.ville) && n(x.terrain) === te && n(x.surface) === s); })[0];
+    I.doublon = dbl || null;
+    if (dbl) al.push({ niveau: "doublon", texte: "Doublon possible : « " + dbl.titre + " » (réf. " + dbl.id + ") existe déjà sur le site. Cochez la case de confirmation pour créer quand même." });
+    return I.alertesFixes.concat(al);
+  }
+
+  function mimeExt(nom) {
+    var m = String(nom).toLowerCase().match(/\.(jpe?g|png|webp|heic|heif)$/);
+    if (!m) return "";
+    return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif" }[m[1]];
+  }
+  function infoImp(t) { var i = document.getElementById("a-imp-progres"); if (i) { i.textContent = t; i.hidden = !t; } }
+
+  function preparerPhotosImp(fichiers, alertes) {
+    var I = etat.imp, fait = 0;
+    return fichiers.reduce(function (p, f) {
+      return p.then(function () {
+        infoImp("Préparation de la photo " + (fait + 1) + " sur " + fichiers.length + "…");
+        return A.preparerPhoto(f.fichier).then(function (ph) { ph.principale = f.principale; I.photos.push(ph); },
+          function (err) { alertes.push({ niveau: "attention", texte: "Photo ignorée — " + err.message }); });
+      }).then(function () { fait++; });
+    }, Promise.resolve()).then(function () {
+      var i = -1; I.photos.forEach(function (ph, k) { if (ph.principale && i === -1) i = k; });
+      if (i > 0) I.photos.unshift(I.photos.splice(i, 1)[0]);
+    });
+  }
+
+  function demarrerImp(brut, fichiersPhotos, source) {
+    var res = normaliserImp(brut), fixes = res.alertes;
+    etat.imp = { etape: "apercu", source: source, bien: res.bien, photos: [], alertesFixes: fixes, doublon: null, confirmeDoublon: false, occupe: false, resultat: null };
+    return preparerPhotosImp(fichiersPhotos || [], fixes).then(function () { rendre(); window.scrollTo(0, 0); });
+  }
+
+  function importerTexte() {
+    var ta = document.getElementById("a-imp-texte"), brut;
+    try { brut = lireJsonImp(ta ? ta.value : ""); } catch (x) { A.message(x.message); return Promise.resolve(); }
+    return demarrerImp(brut, [], "texte").catch(function (x) { A.message(x.message); });
+  }
+
+  function importerFichier(fichier) {
+    var nom = String(fichier.name || "").toLowerCase();
+    if (/\.json$|\.txt$/.test(nom)) {
+      if (fichier.size > IMP_MAX_JSON) { A.message("Fichier trop volumineux pour un JSON d’annonce."); return Promise.resolve(); }
+      return fichier.text().then(function (t) { return demarrerImp(lireJsonImp(t), [], "json"); }).catch(function (x) { A.message(x.message); });
+    }
+    if (!/\.zip$/.test(nom)) { A.message("Format non pris en charge : choisissez un fichier .zip ou .json."); return Promise.resolve(); }
+    if (typeof JSZip === "undefined") { A.message("Le module ZIP n’est pas chargé : actualisez la page (Ctrl+F5) puis réessayez."); return Promise.resolve(); }
+    if (fichier.size > IMP_MAX_ZIP) { A.message("ZIP trop lourd (" + Math.round(fichier.size / 1048576) + " Mo, maximum 120 Mo). Réduisez le nombre de photos."); return Promise.resolve(); }
+    infoImp("Lecture du ZIP…");
+    return JSZip.loadAsync(fichier).then(function (zip) {
+      var noms = Object.keys(zip.files).filter(function (k) { return !zip.files[k].dir && !/(^|\/)(__MACOSX|\.DS_Store)/.test(k) && !/(^|\/)\._/.test(k); });
+      if (noms.length > 150) throw new Error("ZIP invalide : trop de fichiers (" + noms.length + ").");
+      var bad = noms.filter(function (k) { return /(^|\/)\.\.(\/|$)/.test(k) || /^\//.test(k); });
+      if (bad.length) throw new Error("ZIP refusé : chemin de fichier suspect (« " + bad[0] + " »).");
+      var js = noms.filter(function (k) { return /(^|\/)annonce\.json$/i.test(k); })[0] || noms.filter(function (k) { return /\.json$/i.test(k); })[0];
+      if (!js) throw new Error("Aucun fichier annonce.json trouvé dans le ZIP.");
+      var taille = zip.files[js]._data && zip.files[js]._data.uncompressedSize;
+      if (taille && taille > IMP_MAX_JSON) throw new Error("annonce.json est anormalement volumineux.");
+      var racine = js.indexOf("/") === -1 ? "" : js.slice(0, js.lastIndexOf("/") + 1);
+      return zip.files[js].async("string").then(function (t) {
+        var brut = lireJsonImp(t), alertes = [], liste = [];
+        var decl = (brut && brut.photos) || (brut && brut.bien && brut.bien.photos);
+        if (decl instanceof Array && decl.length) {
+          decl.forEach(function (x) {
+            var f = typeof x === "string" ? x : x && x.fichier, princ = !!(x && typeof x === "object" && x.principale);
+            if (!f) return;
+            var chemin = racine + String(f).replace(/^\.?\//, ""), cle = noms.indexOf(chemin) !== -1 ? chemin : noms.filter(function (k) { return k.toLowerCase() === chemin.toLowerCase(); })[0];
+            if (!cle) alertes.push({ niveau: "attention", texte: "Photo déclarée mais introuvable dans le ZIP : " + nettoyerTexteImp(f, 80) });
+            else liste.push({ cle: cle, principale: princ });
+          });
+        } else {
+          noms.filter(function (k) { return mimeExt(k); }).sort().forEach(function (k) { liste.push({ cle: k, principale: false }); });
+        }
+        var vus = {}; liste = liste.filter(function (x) { if (vus[x.cle]) return false; vus[x.cle] = 1; return true; });
+        noms.forEach(function (k) { if (!/\.json$/i.test(k) && !mimeExt(k)) alertes.push({ niveau: "info", texte: "Fichier ignoré (type non accepté) : " + nettoyerTexteImp(k.split("/").pop(), 60) }); });
+        liste = liste.filter(function (x) { if (!mimeExt(x.cle)) { alertes.push({ niveau: "attention", texte: "Format de photo non accepté : " + nettoyerTexteImp(x.cle.split("/").pop(), 60) + " (JPEG, PNG, WebP ou HEIC)." }); return false; } return true; });
+        if (liste.length > IMP_MAX_PHOTOS) { alertes.push({ niveau: "attention", texte: "Plus de " + IMP_MAX_PHOTOS + " photos : seules les " + IMP_MAX_PHOTOS + " premières sont gardées." }); liste = liste.slice(0, IMP_MAX_PHOTOS); }
+        var fichiers = [], i = 0;
+        return liste.reduce(function (p, x) {
+          return p.then(function () {
+            infoImp("Extraction de la photo " + (++i) + " sur " + liste.length + "…");
+            return zip.files[x.cle].async("blob").then(function (bl) {
+              if (bl.size > 40 * 1048576) { alertes.push({ niveau: "attention", texte: "Photo trop lourde ignorée : " + nettoyerTexteImp(x.cle.split("/").pop(), 60) }); return; }
+              var nomF = x.cle.split("/").pop();
+              fichiers.push({ fichier: new File([bl], nomF, { type: mimeExt(nomF) }), principale: x.principale });
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          return demarrerImp(brut, fichiers, "zip").then(function () { etat.imp.alertesFixes = etat.imp.alertesFixes.concat(alertes); majApercuImp(); });
+        });
+      });
+    }).catch(function (x) { infoImp(""); A.message(x.message || "Impossible de lire ce ZIP."); });
+  }
+
+  function lireFormImp() {
+    var f = document.getElementById("form-import"), I = etat.imp; if (!f || !I) return;
+    var b = I.bien;
+    IMP_CHAMPS_TEXTE.concat(IMP_CHAMPS_NOMBRE).forEach(function (k) { if (f.elements[k]) b[k] = f.elements[k].value.trim(); });
+    ["prix_sur_demande", "juridique_verifie", "exclusivite", "a_la_une", "coup_de_coeur"].forEach(function (k) { if (f.elements[k]) b[k] = f.elements[k].checked ? "oui" : "non"; });
+    b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
+    var d = document.querySelector('[name="confirme_doublon"]'); if (d) I.confirmeDoublon = d.checked;
+  }
+
+  function apercuImp() {
+    var I = etat.imp, b = I.bien, ph = I.photos, p = n(b.prix);
+    var suffixe = b.transaction === "location-longue" ? " / mois" : b.transaction === "location-courte" ? " / nuit" : "";
+    var prix = b.prix_sur_demande === "oui" ? "Prix sur demande" : p ? A.prix(p) + suffixe : "Prix à renseigner";
+    var chips = [];
+    if (n(b.surface)) chips.push(n(b.surface) + " m² construits");
+    if (n(b.terrain)) chips.push(n(b.terrain) + " m² de terrain");
+    if (n(b.chambres)) chips.push(n(b.chambres) + " chambre" + (n(b.chambres) > 1 ? "s" : ""));
+    if (n(b.sdb)) chips.push(n(b.sdb) + " salle" + (n(b.sdb) > 1 ? "s" : "") + " de bain");
+    var eq = String(b.equipements || "").split("|").filter(Boolean);
+    return '<div class="a-apercu">' +
+      (ph[0] ? '<img class="a-apercu-photo" src="' + ph[0].apercu + '" alt="Photo principale">' : '<div class="a-apercu-photo a-apercu-vide">Aucune photo</div>') +
+      (ph.length > 1 ? '<div class="a-apercu-bande">' + ph.slice(1, 7).map(function (x, i) { return '<img src="' + x.apercu + '" alt="Photo ' + (i + 2) + '">'; }).join("") + (ph.length > 7 ? "<span>+" + (ph.length - 7) + "</span>" : "") + "</div>" : "") +
+      '<div class="a-apercu-corps"><p class="a-apercu-lieu">' + e([b.type, b.ville, b.quartier].filter(Boolean).join(" · ") || "Type · Ville") + "</p>" +
+      "<h3>" + e(b.titre || "Titre de l’annonce") + '</h3><p class="a-apercu-prix">' + e(prix) + "</p>" +
+      (chips.length ? '<ul class="a-apercu-chips">' + chips.map(function (c) { return "<li>" + e(c) + "</li>"; }).join("") + "</ul>" : "") +
+      (b.juridique ? '<p class="a-apercu-jur"><strong>Situation :</strong> ' + e(b.juridique) + "</p>" : "") +
+      (b.description ? b.description.split(/\n{2,}/).map(function (x) { return "<p>" + e(x).replace(/\n/g, "<br>") + "</p>"; }).join("") : '<p class="a-aide">Pas de description.</p>') +
+      (eq.length ? '<ul class="a-apercu-chips a-apercu-eq">' + eq.map(function (x) { return "<li>" + e(x) + "</li>"; }).join("") + "</ul>" : "") + "</div></div>";
+  }
+  function alertesImpHtml() {
+    var al = controlerImp(), ico2 = { bloquant: "fermer", publier: "info", attention: "info", doublon: "info", info: "info" };
+    var ordre = { bloquant: 0, doublon: 1, publier: 2, attention: 3, info: 4 };
+    al.sort(function (x, y) { return ordre[x.niveau] - ordre[y.niveau]; });
+    if (!al.length) return '<p class="a-imp-ok">' + ico("coche") + " Aucune anomalie détectée. Relisez tout de même l’aperçu avant de publier.</p>";
+    return '<ul class="a-imp-alertes">' + al.map(function (a) { return '<li class="a-imp-' + a.niveau + '">' + ico(ico2[a.niveau]) + "<span>" + e(a.texte) + "</span></li>"; }).join("") + "</ul>" +
+      (etat.imp.doublon ? '<label class="a-case a-imp-doublon"><input type="checkbox" name="confirme_doublon" data-action-change="imp-maj"' + (etat.imp.confirmeDoublon ? " checked" : "") + "><span>Créer quand même cette annonce</span></label>" : "");
+  }
+  function photosImpHtml() {
+    var ph = etat.imp.photos;
+    return '<div class="a-photos">' + ph.map(function (p, i) {
+      return '<div class="a-photo' + (i === 0 ? " est-principale" : "") + '"><img src="' + p.apercu + '" alt="Photo ' + (i + 1) + '">' + (i === 0 ? '<span class="a-photo-etiquette">' + ico("etoile") + " Principale</span>" : "") +
+        '<div class="a-photo-actions">' + (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="gauche" title="Déplacer vers la gauche">' + ico("gauche") + "</button>" : "") +
+        (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="principale" title="Définir comme photo principale">' + ico("etoile") + "</button>" : "") +
+        (i < ph.length - 1 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="droite" title="Déplacer vers la droite">' + ico("droite") + "</button>" : "") +
+        '<button type="button" class="est-danger" data-action="imp-photo" data-i="' + i + '" data-m="retirer" title="Retirer cette photo">' + ico("corbeille") + "</button></div></div>";
+    }).join("") + "</div>";
+  }
+  function majApercuImp() {
+    if (etat.vue !== "import" || !etat.imp || etat.imp.etape !== "apercu") return;
+    var a = document.getElementById("a-imp-apercu"), l = document.getElementById("a-imp-alertes"), p = document.getElementById("a-imp-photos");
+    if (a) a.innerHTML = apercuImp(); if (l) l.innerHTML = alertesImpHtml(); if (p) p.innerHTML = photosImpHtml();
+  }
+
+  function vueImport() {
+    var I = etat.imp;
+    if (!I) {
+      return '<section class="a-bloc"><h2>1. Choisir l’annonce préparée par l’IA</h2><p class="a-aide">Importez le fichier <strong>ZIP</strong> reçu (annonce + photos), ou collez simplement le texte JSON de l’annonce. Rien n’est publié à cette étape : vous verrez d’abord un aperçu.</p>' +
+        '<div class="a-imp-choix"><label class="btn btn-vert a-imp-fichier" for="a-imp-fichier">' + ico("plus") + " Choisir un fichier ZIP ou JSON</label>" +
+        '<input class="sr" id="a-imp-fichier" type="file" accept=".zip,.json,.txt,application/zip,application/json,text/plain"></div>' +
+        '<p class="a-aide" id="a-imp-progres" role="status" hidden></p></section>' +
+        '<section class="a-bloc"><h2>…ou coller le texte de l’annonce</h2><label class="sr" for="a-imp-texte">Texte JSON de l’annonce</label>' +
+        '<textarea id="a-imp-texte" rows="8" placeholder="Collez ici le JSON fourni par Claude ou ChatGPT" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>' +
+        '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="imp-analyser">Analyser le texte collé</button></div>' +
+        '<p class="a-aide">Avec le texte seul, les photos s’ajoutent ensuite depuis la fiche du bien.</p></section>' +
+        '<section class="a-bloc"><h2>Consigne à donner à une IA</h2><p class="a-aide">Copiez cette consigne dans ChatGPT ou Claude avec les informations et les photos du bien : l’IA vous rendra un fichier prêt à importer ici.</p>' +
+        '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="imp-copier-consigne">Copier la consigne</button></div></section>';
+    }
+    if (I.etape === "fini") {
+      var r = I.resultat;
+      return '<section class="a-bloc a-imp-fin"><h2>' + ico("coche") + (r.publie ? " Annonce publiée" : " Brouillon enregistré") + "</h2><p><strong>" + e(r.titre) + "</strong> — réf. " + e(r.id) + " · " + r.photos + " photo" + (r.photos > 1 ? "s" : "") + ".</p>" +
+        '<div class="a-form-pied">' + (r.publie ? '<a class="btn btn-vert" href="bien.html?id=' + encodeURIComponent(r.id) + '" target="_blank" rel="noopener">' + ico("oeil") + " Voir l’annonce sur le site</a>" : "") +
+        '<button type="button" class="btn btn-ligne" data-action="aller" data-vue="bien" data-id="' + e(r.id) + '">Modifier la fiche</button>' +
+        '<button type="button" class="btn btn-ligne" data-action="imp-nouvelle">Importer une autre annonce</button></div></section>';
+    }
+    var b = I.bien, eq = String(b.equipements || "").split("|").filter(Boolean), tous = A.equipements.concat(eq.filter(function (x) { return A.equipements.indexOf(x) === -1; }));
+    var ch = function (nom, lib, val, attrs, cls) { return champ(nom, lib, val, 'data-action-change="imp-maj" ' + (attrs || ""), cls); };
+    var cb = function (nom, lib) { return '<label class="a-case"><input type="checkbox" name="' + nom + '" data-action-change="imp-maj"' + (b[nom] === "oui" ? " checked" : "") + "><span>" + lib + "</span></label>"; };
+    return '<section class="a-bloc"><h2>2. Contrôles</h2><div id="a-imp-alertes">' + alertesImpHtml() + "</div></section>" +
+      '<section class="a-bloc"><h2>3. Aperçu de l’annonce</h2><p class="a-aide">Mise en forme simplifiée : le site affichera la même annonce avec son habillage habituel.</p><div id="a-imp-apercu">' + apercuImp() + "</div></section>" +
+      '<section class="a-bloc"><h2>Photos (' + I.photos.length + ')</h2><p class="a-aide">La première photo est la photo principale. Flèches : changer l’ordre. Étoile : photo principale.</p><div id="a-imp-photos">' + photosImpHtml() + "</div></section>" +
+      '<form id="form-import" class="a-form" novalidate><section class="a-bloc"><h2>4. Corriger si nécessaire</h2><div class="a-grille">' +
+        ch("titre", "Titre *", b.titre, "", "plein") +
+        '<div><label for="f-type">Type de bien</label><select id="f-type" name="type" data-action-change="imp-maj"><option value="">— Choisir —</option>' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
+        '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction" data-action-change="imp-maj">' + ["vente", "location-longue", "location-courte"].map(function (t) { return option(t, LIB_TRANSACTION[t], b.transaction); }).join("") + "</select></div>" +
+        ch("prix", "Prix (DH)", b.prix, 'inputmode="numeric"') + ch("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + e(v) + '">'; }).join("") + "</datalist>" +
+        ch("quartier", "Quartier (affiché au public)", b.quartier, "") +
+        ch("surface", "Surface construite (m²)", b.surface, 'inputmode="numeric"') + ch("terrain", "Surface du terrain (m²)", b.terrain, 'inputmode="numeric"') +
+        ch("chambres", "Chambres", b.chambres, 'inputmode="numeric"') + ch("sdb", "Salles de bains", b.sdb, 'inputmode="numeric"') +
+        ch("juridique", "Situation juridique (affichée au public)", b.juridique, "", "plein") + "</div>" +
+        '<div class="a-cases">' + cb("prix_sur_demande", "Prix sur demande") + cb("juridique_verifie", "Situation vérifiée") + cb("exclusivite", "Exclusivité") + cb("a_la_une", "À la une") + cb("coup_de_coeur", "Coup de cœur") + "</div>" +
+        '<label class="a-etiquette">Équipements</label><div class="a-cases">' + tous.map(function (x) { return '<label class="a-case"><input type="checkbox" name="equipement" value="' + e(x) + '" data-action-change="imp-maj"' + (eq.indexOf(x) !== -1 ? " checked" : "") + "><span>" + e(x) + "</span></label>"; }).join("") + "</div>" +
+        '<div class="plein"><label for="f-description">Description</label><textarea id="f-description" name="description" rows="9" data-action-change="imp-maj">' + e(b.description) + "</textarea></div>" +
+        '<div class="a-grille">' + ch("adresse_privee", "Adresse exacte / propriétaire (privé)", b.adresse_privee, "", "plein") + '<div class="plein"><label for="f-notes_privees">Notes internes (privées)</label><textarea id="f-notes_privees" name="notes_privees" rows="2" data-action-change="imp-maj">' + e(b.notes_privees) + "</textarea></div></div></section>" +
+      '<div class="a-barre"><div class="a-barre-statut"><span class="a-statut a-statut-brouillon">Brouillon</span><small id="a-imp-progres" role="status" hidden></small></div><div class="a-barre-actions">' +
+        '<button type="button" class="btn btn-ligne" data-action="imp-annuler">Annuler l’import</button>' +
+        '<button type="button" class="btn btn-ligne" data-action="imp-creer" data-publier="0">Enregistrer en brouillon</button>' +
+        '<button type="button" class="btn btn-vert" data-action="imp-creer" data-publier="1">Valider et publier</button></div></div></form>';
+  }
+
+  function creerImp(publier) {
+    var I = etat.imp; if (!I || I.occupe) return Promise.resolve();
+    lireFormImp();
+    var al = controlerImp(), bloq = al.filter(function (a) { return a.niveau === "bloquant"; })[0];
+    if (bloq) { A.message(bloq.texte); return Promise.resolve(); }
+    if (publier) { var pb = al.filter(function (a) { return a.niveau === "publier"; })[0]; if (pb) { A.message(pb.texte); return Promise.resolve(); } }
+    if (I.doublon && !I.confirmeDoublon) { A.message("Doublon possible : cochez « Créer quand même cette annonce » pour continuer."); return Promise.resolve(); }
+    I.occupe = true;
+    var b = Object.assign({}, I.bien, { statut: "brouillon" }), id = null, fait = 0;
+    document.querySelectorAll('[data-action="imp-creer"],[data-action="imp-annuler"]').forEach(function (x) { x.disabled = true; });
+    infoImp("Création de l’annonce…");
+    var pause = function (ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); };
+    var envoyer = function (ph, tentative) {
+      return A.api("photoAjouter", { bien_id: id, photo: { nom: ph.nom, mime: ph.mime, donnees: ph.donnees } }).catch(function (err) {
+        if (err.code === "AUTH" || tentative >= 1) throw err;
+        return pause(1500).then(function () { return envoyer(ph, tentative + 1); });
+      });
+    };
+    return A.api("bienEnregistrer", { bien: b }).then(function (r) {
+      id = r.bien.id;
+      return I.photos.reduce(function (p, ph) {
+        return p.then(function () { infoImp("Envoi de la photo " + (fait + 1) + " sur " + I.photos.length + "…"); return envoyer(ph, 0).then(function () { fait++; }); });
+      }, Promise.resolve());
+    }).then(function () {
+      if (publier) { infoImp("Publication…"); return A.api("bienEnregistrer", { bien: { id: id, statut: "publie" } }); }
+    }).then(function () {
+      return charger().then(function () {
+        I.occupe = false; I.resultat = { id: id, titre: b.titre, publie: !!publier, photos: fait };
+        if (publier) { I.etape = "fini"; rendre(); window.scrollTo(0, 0); A.message("Annonce publiée sur le site."); }
+        else { etat.imp = null; aller("bien", id); A.message("Brouillon enregistré : vous pouvez le corriger puis le publier."); }
+      });
+    }).catch(function (err) {
+      I.occupe = false;
+      var annule = id ? A.api("bienSupprimer", { id: id }).then(function () { return true; }, function () { return false; }) : Promise.resolve(true);
+      return annule.then(function (ok) {
+        infoImp("");
+        document.querySelectorAll('[data-action="imp-creer"],[data-action="imp-annuler"]').forEach(function (x) { x.disabled = false; });
+        if (err.code === "AUTH") { A.jeton.ecrire(""); D = null; rendre(); A.message(err.message); return; }
+        A.message("Import interrompu : " + err.message + (ok ? " Rien n’a été publié, vous pouvez réessayer." : " Attention : un brouillon incomplet (" + id + ") a pu rester dans la liste, supprimez-le."));
+        return charger().then(rendre, rendre);
+      });
+    });
   }
 
   /* ====================================================================== PROSPECTS */
   function vueProspects() {
     var q = etat.recherche.toLowerCase(), t = aujourdhui();
-    var l = D.prospects.filter(function (p) { return (!etat.filtreProspect || p.statut === etat.filtreProspect) && (!q || (p.nom + " " + p.telephone + " " + p.email + " " + p.ville_recherche).toLowerCase().indexOf(q) !== -1); })
-      .sort(function (a, b) { return String(b.date_maj).localeCompare(String(a.date_maj)); });
-    return '<div class="a-pipeline">' + [""].concat(D.listes.statutsProspect).map(function (s) {
+    var relance = etat.filtreProspect === "__relance", nbRelance = D.prospects.filter(relanceDue).length;
+    var l = D.prospects.filter(function (p) { return (!etat.filtreProspect || (relance ? relanceDue(p) : p.statut === etat.filtreProspect)) && (!q || (p.nom + " " + p.telephone + " " + p.email + " " + p.ville_recherche).toLowerCase().indexOf(q) !== -1); })
+      .sort(function (a, b) { return relance ? String(a.date_relance).localeCompare(String(b.date_relance)) : String(b.date_maj).localeCompare(String(a.date_maj)); });
+    return '<div class="a-outils"><div class="a-puces"><button class="puce' + (relance ? " est-actif" : "") + '" data-action="filtre-prospect" data-v="__relance">' + ico("horloge") + " À relancer (" + nbRelance + ")</button></div></div>" +
+      '<div class="a-pipeline">' + [""].concat(D.listes.statutsProspect).map(function (s) {
         var c = s ? D.prospects.filter(function (p) { return p.statut === s; }).length : D.prospects.length;
-        return '<button class="a-etape' + (etat.filtreProspect === s ? " est-actif" : "") + '" data-action="filtre-prospect" data-v="' + e(s) + '"><strong>' + c + "</strong><span>" + (s || "Tous") + "</span></button>";
+        return '<button class="a-etape' + (etat.filtreProspect === s && !relance ? " est-actif" : "") + '" data-action="filtre-prospect" data-v="' + e(s) + '"><strong>' + c + "</strong><span>" + (s || "Tous") + "</span></button>";
       }).join("") + "</div>" +
       '<div class="a-outils"><input class="a-recherche" type="search" placeholder="Rechercher un prospect…" value="' + e(etat.recherche) + '" data-recherche aria-label="Rechercher un prospect"></div>' +
       (l.length ? '<section class="a-bloc a-bloc-liste">' + l.map(function (p) {
@@ -325,7 +785,7 @@
     var visites = nouveau ? [] : D.visites.filter(function (v) { return v.prospect_id === p.id; }).sort(recent);
     var tel = String(p.telephone || "").replace(/[^\d+]/g, "");
     return '<div class="a-deux a-deux-large"><form id="form-prospect" class="a-bloc a-form" novalidate><h2>Coordonnées et recherche</h2>' +
-      (nouveau ? "" : '<div class="a-contacts">' + (tel ? '<a class="btn btn-ligne" href="tel:' + e(tel) + '">' + ico("telephone") + ' Appeler</a><a class="btn btn-ligne" href="https://wa.me/' + e(tel.replace(/\D/g, "")) + '" target="_blank" rel="noopener">WhatsApp</a>' : "") + (p.email ? '<a class="btn btn-ligne" href="mailto:' + e(p.email) + '">' + ico("courrier") + " E-mail</a>" : "") + "</div>") +
+      (nouveau ? "" : '<div class="a-contacts">' + (tel ? '<a class="btn btn-ligne" href="tel:' + e(tel) + '">' + ico("telephone") + ' Appeler</a><a class="btn btn-ligne" href="https://wa.me/' + e(numWa(tel)) + '" target="_blank" rel="noopener">WhatsApp</a>' : "") + (p.email ? '<a class="btn btn-ligne" href="mailto:' + e(p.email) + '">' + ico("courrier") + " E-mail</a>" : "") + "</div>") +
       '<div class="a-grille">' + champ("nom", "Nom *", p.nom, "required", "plein") + champ("telephone", "Téléphone", p.telephone, 'type="tel"') + champ("email", "E-mail", p.email, 'type="email"') +
         champ("budget", "Budget", p.budget, 'placeholder="ex. 3 à 5 M DH"') + champ("type_recherche", "Type de bien recherché", p.type_recherche) + champ("ville_recherche", "Localisation souhaitée", p.ville_recherche) +
         '<div><label for="f-statut">Statut commercial</label><select id="f-statut" name="statut">' + D.listes.statutsProspect.map(function (s) { return option(s, s, p.statut); }).join("") + "</select></div>" +
@@ -333,7 +793,7 @@
         '<div class="plein"><label for="f-notes">Notes privées</label><textarea id="f-notes" name="notes" rows="4">' + e(p.notes || "") + "</textarea></div></div>" +
       '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-prospect" data-id="' + e(p.id) + '">Supprimer ce prospect</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div>' +
       (nouveau ? "" : '<p class="a-aide">Fiche créée le ' + e(A.dateFr(p.date_creation, true)) + " · origine : " + e(p.source || "—") + "</p>") + "</form>" +
-      (nouveau ? "" : '<div><section class="a-bloc"><h2>Historique des contacts</h2><form id="form-historique" class="a-historique-ajout"><select name="type" aria-label="Type de contact"><option>Appel</option><option>E-mail</option><option>WhatsApp</option><option>Visite</option><option>Note</option></select><input name="note" placeholder="Ajouter une note…" aria-label="Note" required><button class="btn btn-vert" type="submit" aria-label="Ajouter">' + ico("plus") + "</button></form>" +
+      (nouveau ? "" : "<div>" + blocSuivi(p) + '<section class="a-bloc"><h2>Historique des contacts</h2><form id="form-historique" class="a-historique-ajout"><select name="type" aria-label="Type de contact"><option>Appel</option><option>E-mail</option><option>WhatsApp</option><option>Visite</option><option>Note</option></select><input name="note" placeholder="Ajouter une note…" aria-label="Note" required><button class="btn btn-vert" type="submit" aria-label="Ajouter">' + ico("plus") + "</button></form>" +
         (hist.length ? '<ol class="a-fil">' + hist.map(function (h) { return "<li><span>" + e(h.type) + " · " + e(A.dateFr(h.date, true)) + "</span><p>" + e(h.note) + "</p></li>"; }).join("") + "</ol>" : '<p class="a-vide">Aucun échange enregistré.</p>') + "</section>" +
         (visites.length ? '<section class="a-bloc"><h2>Demandes de visite</h2>' + visites.map(ligneVisite).join("") + "</section>" : "") + "</div>") + "</div>";
   }
@@ -382,30 +842,93 @@
   }
 
   /* ====================================================================== GABARIT */
-  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["prospects", "Prospects", "personnes"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
+  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["prospects", "Prospects", "personnes"], ["samsars", "Samsar", "cle"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
   function rendre() {
     if (!D) { racine.innerHTML = vueConnexion(); return; }
-    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
-    var notif = notifications();
-    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", demandes: "Demandes", parametres: "Paramètres" };
-    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres }[v]();
-    var action = v === "biens" || v === "tableau" ? '<button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : "";
-    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : "";
+    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
+    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", import: "Importer une annonce IA", samsars: "Samsar", samsar: etat.id ? (samsar(etat.id) || {}).nom || "Samsar" : "Ajouter un samsar", demandes: "Demandes", parametres: "Paramètres" };
+    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres, samsars: vueSamsars, samsar: vueSamsar, import: vueImport }[v]();
+    var action = v === "biens" || v === "tableau" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="imp-ouvrir">' + ico("plus") + ' Importer une annonce IA</button><button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button></div>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : v === "samsars" ? '<button class="btn btn-or" data-action="aller" data-vue="samsar">' + ico("plus") + " Ajouter un samsar</button>" : "";
+    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : "";
     racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Pro">' +
-      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : m[0] === "biens" && notif.attente.length ? '<em class="a-compteur">' + notif.attente.length + "</em>" : "") + "</button>"; }).join("") +
+      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
       '<main class="a-principal">' + (A.demo ? '<p class="a-bandeau-demo">' + ico("info") + " Mode démonstration — données fictives enregistrées sur cet appareil, accès non protégé.</p>" : "") +
-      '<header class="a-entete"><div>' + (retour ? '<button class="a-fil-retour" data-action="aller" data-vue="' + retour + '">' + ico("gauche") + " " + titres[retour] + "</button>" : "") + "<h1>" + e(titres[v]) + "</h1></div><div class=\"a-entete-droite\">" +
-      '<div class="a-notif' + (etat.notifOuvertes ? " est-ouvert" : "") + '"><button type="button" class="a-cloche" data-action="notif-basculer" aria-haspopup="true" aria-expanded="' + (etat.notifOuvertes ? "true" : "false") + '" aria-label="Notifications' + (notif.total ? " (" + notif.total + " nouvelles)" : "") + '">' + ico("cloche") + (notif.total ? '<em class="a-point-rouge" aria-hidden="true"></em>' : "") + "</button>" + (etat.notifOuvertes ? panneauNotifications(notif) : "") + "</div>" +
-      action + "</div></header>" + corps + "</main></div>" +
+      '<header class="a-entete"><div>' + (retour ? '<button class="a-fil-retour" data-action="aller" data-vue="' + retour + '">' + ico("gauche") + " " + titres[retour] + "</button>" : "") + "<h1>" + e(titres[v]) + "</h1></div>" + action + "</header>" + corps + "</main></div>" +
       '<div id="a-occupe" class="a-occupe" role="status" hidden></div>';
   }
 
   /* ====================================================================== ÉVÉNEMENTS */
   var ACTIONS = {
-    aller: function (b) { if (b.dataset.sous) etat.sousVue = b.dataset.sous; if (b.dataset.filtreBien !== undefined) etat.filtreBien = b.dataset.filtreBien; aller(b.dataset.vue, b.dataset.id); },
+    aller: function (b) { if (b.dataset.filtreProspect !== undefined) etat.filtreProspect = b.dataset.filtreProspect; if (b.dataset.sous) etat.sousVue = b.dataset.sous; if (b.dataset.filtreBien !== undefined) etat.filtreBien = b.dataset.filtreBien; aller(b.dataset.vue, b.dataset.id); },
     "filtre-bien": function (b) { etat.filtreBien = b.dataset.v; rendre(); },
+    "imp-ouvrir": function () { etat.imp = null; aller("import"); },
+    "imp-nouvelle": function () { etat.imp = null; rendre(); },
+    "imp-annuler": function () { confirmer("Annuler l’import ?", "L’annonce préparée ne sera pas enregistrée.", "Annuler l’import").then(function (ok) { if (ok) { etat.imp = null; aller("biens"); } }); },
+    "imp-analyser": function () { importerTexte(); },
+    "imp-copier-consigne": function () { copierTexte(CONSIGNE_IA).then(function (ok) { A.message(ok ? "Consigne copiée : collez-la dans ChatGPT ou Claude." : "Copie impossible sur cet appareil."); }); },
+    "imp-photo": function (b) {
+      lireFormImp();
+      var ph = etat.imp.photos, i = parseInt(b.dataset.i, 10), m = b.dataset.m;
+      if (m === "gauche" && i > 0) { var t = ph[i]; ph[i] = ph[i - 1]; ph[i - 1] = t; }
+      else if (m === "droite" && i < ph.length - 1) { var u = ph[i]; ph[i] = ph[i + 1]; ph[i + 1] = u; }
+      else if (m === "principale") ph.unshift(ph.splice(i, 1)[0]);
+      else if (m === "retirer") ph.splice(i, 1);
+      rendre();
+    },
+    "imp-creer": function (b) { creerImp(b.dataset.publier === "1"); },
     "filtre-prospect": function (b) { etat.filtreProspect = b.dataset.v; rendre(); },
+    "filtre-samsar": function (b) { etat.filtreSamsar = b.dataset.v; rendre(); },
+    "relance-samsar": function (b) {
+      var s = samsar(etat.id), j = parseInt(b.dataset.jours, 10), date = j ? dansJours(j) : "";
+      faire("samsarEnregistrer", { samsar: { id: s.id, date_relance: date } }, date ? "Relance fixée au " + A.dateFr(date) + "." : "Relance supprimée.", true).then(function (r) {
+        Object.assign(s, r.samsar);
+        var champDate = document.getElementById("f-date_relance"), info = document.getElementById("a-relance-info");
+        if (champDate) champDate.value = date;
+        if (info) info.innerHTML = date ? "Prochaine relance : <strong>" + e(A.dateFr(date)) + "</strong>" : "Aucune relance prévue.";
+      });
+    },
+    "wa-samsar": function () {
+      var s = samsar(etat.id), ta = document.getElementById("a-wa-texte"), txt = ta ? ta.value.trim() : "";
+      if (!txt || !ouvrirWhatsApp(s, txt)) return;
+      faire("samsarEnregistrer", { samsar: { id: s.id, dernier_contact: aujourdhui() } }, "Dernier contact mis à jour.", true).then(function (r) {
+        Object.assign(s, r.samsar);
+        var c = document.getElementById("f-dernier_contact"); if (c) c.value = s.dernier_contact;
+      });
+    },
+    "supprimer-samsar": function (b) {
+      confirmer("Supprimer ce samsar ?", "Sa fiche sera supprimée définitivement.", "Supprimer définitivement")
+        .then(function (ok) { if (ok) faire("samsarSupprimer", { id: b.dataset.id }, "Samsar supprimé.").then(function () { aller("samsars"); }).catch(function () {}); });
+    },
+    "agent-actif": function (b) {
+      var ag = agent(b.dataset.id), actif = ag.actif === "oui";
+      faire("agentEnregistrer", { agent: { id: ag.id, actif: actif ? "non" : "oui" } }, actif ? "Accès désactivé : " + ag.nom + " ne peut plus se connecter." : "Accès réactivé.").then(rendre);
+    },
+    "nouveau-code": function (b) {
+      var ag = agent(b.dataset.id);
+      confirmer("Créer un nouveau code PIN ?", "L’ancien code de " + ag.nom + " ne fonctionnera plus. Le nouveau code s’affichera une seule fois, avec le message WhatsApp prêt à envoyer.", "Créer le nouveau code")
+        .then(function (ok) { if (ok) faire("agentNouveauCode", { id: ag.id }).then(function (r) { return boiteCodeAgent(r.agent, r.pin, true); }).then(rendre).catch(function () {}); });
+    },
+    relance: function (b) {
+      var p = prospect(etat.id), j = parseInt(b.dataset.jours, 10), date = j ? dansJours(j) : "";
+      faire("prospectEnregistrer", { prospect: { id: p.id, date_relance: date } }, date ? "Relance fixée au " + A.dateFr(date) + "." : "Relance supprimée.", true).then(function (r) {
+        Object.assign(p, r.prospect);
+        var champDate = document.getElementById("f-date_relance"), info = document.getElementById("a-relance-info");
+        if (champDate) champDate.value = date;
+        if (info) info.innerHTML = date ? "Prochaine relance : <strong>" + e(A.dateFr(date)) + "</strong>" : "Aucune relance prévue.";
+      });
+    },
+    "wa-prospect": function () {
+      var p = prospect(etat.id), ta = document.getElementById("a-wa-texte"), sel = document.getElementById("a-wa-modele"), txt = ta ? ta.value.trim() : "";
+      if (!txt || !ouvrirWhatsApp(p, txt)) return;
+      var m = MODELES.filter(function (x) { return sel && x.id === sel.value; })[0];
+      faire("historiqueAjouter", { prospect_id: p.id, type: "WhatsApp", note: "Message envoyé" + (m ? " (modèle : " + m.nom + ")" : "") + " : " + txt.slice(0, 300) }, "Échange ajouté à l’historique.").then(rendre);
+    },
+    "wa-bien": function (b) {
+      var p = prospect(b.dataset.prospect), x = bien(b.dataset.bien);
+      if (!p || !x || !ouvrirWhatsApp(p, texteBienProspect(p, x))) return;
+      faire("historiqueAjouter", { prospect_id: p.id, type: "WhatsApp", note: "Bien proposé : " + x.id + " " + x.titre }, "Proposition ajoutée à l’historique de " + nomAffiche(p) + ".").then(rendre);
+    },
     "sous-vue": function (b) { etat.sousVue = b.dataset.v; rendre(); },
     deconnexion: function () { A.api("deconnexion").catch(function () {}).then(function () { A.jeton.ecrire(""); D = null; etat.vue = "tableau"; rendre(); }); },
     "valider-bien": function (b) {
@@ -413,12 +936,6 @@
       confirmer("Valider ce bien ?", "« " + x.titre + " » sera publié sur le site public." + (!n(x.prix) ? " Attention : aucun prix n’est renseigné." : ""), "Valider et publier")
         .then(function (ok) { if (ok) faire("bienValider", { id: x.id }, "Bien validé et publié.").then(function () { if (etat.edition && etat.id === x.id) etat.edition = Object.assign({}, bien(x.id)); rendre(); }); });
     },
-    "notif-basculer": function () {
-      if (etat.notifOuvertes) marquerVentesVues();
-      etat.notifOuvertes = !etat.notifOuvertes;
-      rendre();
-    },
-    "notif-item": function (b) { aller("bien", b.dataset.id); },
     "ouvrir-refus": function (b) { etat.refus = b.dataset.id; rendre(); var i = document.getElementById("f-motif"); if (i) i.focus(); },
     "annuler-refus": function () { etat.refus = null; rendre(); },
     "choisir-motif": function (b) { var i = document.getElementById("f-motif"); if (i) i.value = b.dataset.motif; },
@@ -444,20 +961,6 @@
       confirmer("Supprimer cet agent ?", "Son accès sera supprimé définitivement. Réattribuez d’abord ses biens s’il en a.", "Supprimer définitivement")
         .then(function (ok) { if (ok) faire("agentSupprimer", { id: b.dataset.id }, "Agent supprimé.").then(function () { aller("agents"); }).catch(function () {}); });
     },
-    "renvoyer-codes": function (b) {
-      var a = agent(b.dataset.id);
-      confirmer("Générer de nouveaux codes ?", "Un nouveau mot de passe sera créé pour " + a.nom + " : l’ancien cessera de fonctionner immédiatement.", "Générer de nouveaux codes")
-        .then(function (ok) {
-          if (!ok) return;
-          var mdp = motDePasseAleatoire();
-          faire("agentEnregistrer", { agent: { id: a.id, motDePasse: mdp } }, "Nouveaux codes générés pour " + a.nom + ".").then(function () { etat.dernierMdp = mdp; rendre(); window.scrollTo(0, 0); });
-        });
-    },
-    "copier-message": function () {
-      var a = agent(etat.id); if (!a || !etat.dernierMdp) return;
-      var msg = messageBienvenueAgent(a, etat.dernierMdp);
-      (navigator.clipboard ? navigator.clipboard.writeText(msg) : Promise.reject()).then(function () { A.message("Message copié."); }, function () { A.message("Copie impossible sur cet appareil : sélectionnez le texte manuellement."); });
-    },
     "supprimer-prospect": function (b) {
       confirmer("Supprimer ce prospect ?", "Sa fiche, son historique et ses demandes seront supprimés définitivement.", "Supprimer définitivement")
         .then(function (ok) { if (ok) faire("prospectSupprimer", { id: b.dataset.id }, "Prospect supprimé.").then(function () { aller("prospects"); }); });
@@ -479,6 +982,9 @@
       if (s.value === "publie" && !n(x.prix)) { A.message("Indiquez un prix avant de publier ce bien."); s.value = x.statut; return; }
       faire("bienEnregistrer", { bien: { id: x.id, statut: s.value } }, "Statut : " + LIB_STATUT[s.value] + ".").then(rendre, rendre);
     },
+    "imp-maj": function () { lireFormImp(); majApercuImp(); },
+    "modele-wa": function (s) { var m = MODELES.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(prospect(etat.id)); },
+    "modele-wa-samsar": function (s) { var m = MODELES_SAMSAR.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(samsar(etat.id)); },
     "statut-visite": function (s) { faire("visiteStatut", { id: s.dataset.id, statut: s.value }, "Visite : " + s.value + ".").then(rendre, rendre); },
     "statut-proposition": function (s) { faire("propositionStatut", { id: s.dataset.id, statut: s.value }, "Statut mis à jour.").then(rendre, rendre); },
     "statut-motif": function (s) { faire("motifEnregistrer", { motif: { id: s.dataset.id, actif: s.value } }, "Motif mis à jour.").then(rendre, rendre); }
@@ -487,13 +993,13 @@
   document.addEventListener("DOMContentLoaded", function () {
     racine = document.getElementById("admin");
     racine.addEventListener("click", function (ev) {
-      if (etat.notifOuvertes && !ev.target.closest(".a-notif")) { marquerVentesVues(); etat.notifOuvertes = false; rendre(); }
       var b = ev.target.closest("[data-action]");
       if (b && ACTIONS[b.dataset.action]) { ev.preventDefault(); ACTIONS[b.dataset.action](b); }
     });
     racine.addEventListener("change", function (ev) {
       var s = ev.target.closest("[data-action-change]");
       if (s) return CHANGEMENTS[s.dataset.actionChange](s);
+      if (ev.target.id === "a-imp-fichier" && ev.target.files.length) { var fi = ev.target.files[0]; ev.target.value = ""; importerFichier(fi); return; }
       if (ev.target.id === "f-photos" && ev.target.files.length) { var f = ev.target.files; envoyerPhotos(f).catch(function () {}); }
     });
     racine.addEventListener("input", function (ev) {
@@ -525,13 +1031,15 @@
         faire("bienRefuser", { id: f.dataset.id, motif: v.motif, commentaire: v.commentaire }, "Bien refusé : l’agent a été notifié.").then(function () { etat.refus = null; if (etat.edition && etat.id === f.dataset.id) etat.edition = Object.assign({}, bien(f.dataset.id)); rendre(); });
       } else if (f.id === "form-agent") {
         if (!v.nom || !v.email) { A.message("Indiquez un nom et un e-mail."); return; }
-        var creation = !etat.id, mdpSaisi = v.motDePasse;
         if (etat.id) v.id = etat.id;
         if (!v.motDePasse) delete v.motDePasse;
-        faire("agentEnregistrer", { agent: v }, creation ? "Agent créé." : "Agent mis à jour.").then(function (r) {
-          aller("agent", r.agent.id);
-          if (mdpSaisi) { etat.dernierMdp = mdpSaisi; rendre(); }
+        faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "Agent créé.").then(function (r) {
+          if (r.pin) boiteCodeAgent(r.agent, r.pin, false).then(function () { aller("agents"); }); else aller("agents");
         });
+      } else if (f.id === "form-samsar") {
+        if (!v.nom) { A.message("Indiquez un nom."); return; }
+        if (etat.id) v.id = etat.id;
+        faire("samsarEnregistrer", { samsar: v }, etat.id ? "Samsar mis à jour." : "Samsar ajouté.").then(function () { aller("samsars"); }).catch(function () {});
       } else if (f.id === "form-motif") {
         if (!v.libelle) { A.message("Indiquez un libellé."); return; }
         faire("motifEnregistrer", { motif: v }, "Motif enregistré.", true).then(function () { charger().then(rendre); f.reset(); });

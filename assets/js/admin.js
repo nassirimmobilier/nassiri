@@ -95,17 +95,32 @@
         '<p class="a-pin-valeur" aria-label="Code PIN">' + e(pin) + "</p>" +
         '<p class="a-aide"><strong>Ce code ne sera plus affiché.</strong> Envoyez-le maintenant. S’il est perdu, utilisez « Nouveau code » sur la fiche de l’agent.</p>' +
         '<label class="a-etiquette" for="a-pin-message">Message à envoyer</label><textarea id="a-pin-message" rows="9" readonly>' + e(texte) + "</textarea>" +
-        '<div class="a-modale-actions">' + (num ? '<button class="btn btn-vert" data-r="wa">Ouvrir dans WhatsApp</button>' : "") + '<button class="btn btn-ligne" data-r="copie">Copier le message</button><button class="btn btn-ligne" data-r="fin">Fermer</button></div>' +
+        '<div class="a-modale-actions">' + (num ? '<button class="btn btn-vert" data-r="wa">Ouvrir dans WhatsApp</button>' : "") + (ag.email ? '<button class="btn btn-ligne" data-r="mail">Envoyer par e-mail</button>' : "") + '<button class="btn btn-ligne" data-r="copie">Copier le message</button><button class="btn btn-ligne" data-r="fin">Fermer</button></div>' +
         (num ? "" : '<p class="a-aide">Aucun numéro WhatsApp ou téléphone pour cet agent : copiez le message et envoyez-le vous-même.</p>') + "</div>";
       m.addEventListener("click", function (ev) {
         var b = ev.target.closest("[data-r]");
         if (b && b.dataset.r === "wa") window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(texte), "_blank", "noopener");
+        else if (b && b.dataset.r === "mail") window.location.href = "mailto:" + encodeURIComponent(ag.email).replace(/%40/g, "@") + "?subject=" + encodeURIComponent("Votre accès à l’Espace Agent Nassiri Real Estate") + "&body=" + encodeURIComponent(texte);
         else if (b && b.dataset.r === "copie") copierTexte(texte).then(function (ok) { A.message(ok ? "Message copié." : "Copie impossible : sélectionnez le texte à la main."); });
         else if (b || ev.target === m) { m.remove(); fini(); }
       });
       document.body.appendChild(m);
     });
   }
+  /* Le code PIN est fabriqué par le script Google : s'il ne revient pas, le script n'est pas à jour */
+  function alerteScriptAncien(sansCode) {
+    return new Promise(function (fini) {
+      var m = document.createElement("div"); m.className = "a-modale";
+      m.innerHTML = '<div class="a-modale-boite a-modale-large" role="alertdialog" aria-modal="true"><h2>Le code PIN n’a pas pu être créé</h2>' +
+        '<p>Le site est à jour, mais <strong>le script Google (Code.gs)</strong> qui fabrique les codes ne l’est pas encore.</p>' + (sansCode ? '<p class="a-aide">L’agent a été ajouté sans code. Après la mise à jour, ouvrez sa fiche et cliquez sur <strong>Nouveau code PIN</strong>.</p>' : "") +
+        '<ol class="a-aide"><li>Ouvrez votre Google Sheet, puis <strong>Extensions → Apps Script</strong>.</li><li>Remplacez tout le contenu de <strong>Code.gs</strong> par le dernier fichier (dossier <em>apps-script</em> du site).</li>' +
+        '<li>Cliquez sur <strong>Déployer → Gérer les déploiements</strong>, le crayon, puis <strong>Nouvelle version</strong> → Déployer.</li><li>Revenez ici et recommencez.</li></ol>' +
+        '<div class="a-modale-actions"><button class="btn btn-vert" data-r="fin">Compris</button></div></div>';
+      m.addEventListener("click", function (ev) { if (ev.target.closest("[data-r]") || ev.target === m) { m.remove(); fini(); } });
+      document.body.appendChild(m);
+    });
+  }
+  var RE_SCRIPT_ANCIEN = /mot de passe|motdepasse|code d.au moins|action inconnue/i;
   var STATUTS_SAMSAR = ["À contacter", "Contacté", "Actif", "Partenaire", "Inactif"];
   function samsar(id) { return (D.samsar || []).filter(function (s) { return s.id === id; })[0]; }
   function relanceSamsarDue(s) { return !!s.date_relance && s.date_relance <= aujourdhui() && s.statut !== "Inactif"; }
@@ -375,7 +390,7 @@
     return '<div class="a-deux a-deux-large"><form id="form-agent" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
       champ("nom", "Nom *", a.nom, "required", "plein") + champ("email", "E-mail (identifiant de connexion) *", a.email, 'type="email" required') + champ("telephone", "Téléphone", a.telephone, 'type="tel"') +
       champ("whatsapp", "WhatsApp (avec l’indicatif pays si possible)", a.whatsapp, "") + "</div>" +
-      (nouveau ? '<p class="a-aide">Un <strong>code PIN à 6 chiffres</strong> sera créé automatiquement. Vous pourrez l’envoyer tout de suite à l’agent par WhatsApp.</p>' : "") +
+      (nouveau ? '<p class="a-aide" style="margin:18px 0 14px">Un <strong>code PIN à 6 chiffres</strong> sera créé automatiquement. Vous pourrez l’envoyer tout de suite à l’agent par WhatsApp ou par e-mail.</p>' : "") +
       '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-agent" data-id="' + e(a.id) + '">Supprimer cet agent</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
       (nouveau ? "" : '<div><section class="a-bloc"><h2>Accès</h2><p class="a-aide">Statut : <span class="a-statut ' + (a.actif === "oui" ? "a-statut-publie" : "a-statut-brouillon") + '">' + (a.actif === "oui" ? "Actif" : "Désactivé") + "</span></p>" +
         '<div class="a-contacts"><button type="button" class="btn btn-ligne" data-action="agent-actif" data-id="' + e(a.id) + '">' + (a.actif === "oui" ? "Désactiver l’accès" : "Réactiver l’accès") + '</button>' +
@@ -1097,7 +1112,7 @@
     "nouveau-code": function (b) {
       var ag = agent(b.dataset.id);
       confirmer("Créer un nouveau code PIN ?", "L’ancien code de " + ag.nom + " ne fonctionnera plus. Le nouveau code s’affichera une seule fois, avec le message WhatsApp prêt à envoyer.", "Créer le nouveau code")
-        .then(function (ok) { if (ok) faire("agentNouveauCode", { id: ag.id }).then(function (r) { return boiteCodeAgent(r.agent, r.pin, true); }).then(rendre).catch(function () {}); });
+        .then(function (ok) { if (ok) faire("agentNouveauCode", { id: ag.id }).then(function (r) { if (!r.pin) return alerteScriptAncien(); return boiteCodeAgent(r.agent, r.pin, true); }).then(rendre).catch(function (err) { if (RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(); }); });
     },
     relance: function (b) {
       var p = prospect(etat.id), j = parseInt(b.dataset.jours, 10), date = j ? dansJours(j) : "";
@@ -1224,11 +1239,15 @@
         faire("bienRefuser", { id: f.dataset.id, motif: v.motif, commentaire: v.commentaire }, "Bien refusé : l’agent a été notifié.").then(function () { etat.refus = null; if (etat.edition && etat.id === f.dataset.id) etat.edition = Object.assign({}, bien(f.dataset.id)); rendre(); });
       } else if (f.id === "form-agent") {
         if (!v.nom || !v.email) { A.message("Indiquez un nom et un e-mail."); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v.email).trim())) { A.message("L’e-mail n’est pas valide (exemple : prenom@exemple.com)."); return; }
         if (etat.id) v.id = etat.id;
         if (!v.motDePasse) delete v.motDePasse;
-        faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "Agent créé.").then(function (r) {
-          if (r.pin) boiteCodeAgent(r.agent, r.pin, false).then(function () { aller("agents"); }); else aller("agents");
-        });
+        var creation = !etat.id;
+        faire("agentEnregistrer", { agent: v }, etat.id ? "Agent mis à jour." : "").then(function (r) {
+          if (r.pin) { A.message("Agent créé."); boiteCodeAgent(r.agent, r.pin, false).then(function () { aller("agents"); }); }
+          else if (creation && !v.motDePasse) { alerteScriptAncien(true).then(function () { aller("agents"); }); }
+          else aller("agents");
+        }).catch(function (err) { if (creation && RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(); });
       } else if (f.id === "form-samsar") {
         if (!v.nom) { A.message("Indiquez un nom."); return; }
         if (etat.id) v.id = etat.id;

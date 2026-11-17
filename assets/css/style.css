@@ -776,3 +776,4 @@ button.wa-contact { width: 100%; text-align: left; background: #fff; font: inher
 @media (max-width: 1100px) { .entete-logo.logo-carre { width: clamp(110px, 14vw, 140px); } }
 @media (max-width: 640px) { .entete-logo.logo-carre { width: 96px; } .hero { padding-top: 200px; } }
 @media (min-width: 1101px) { .hero { height: clamp(600px, 63vh, 800px); } .hero-contenu { top: clamp(190px, 23vh, 250px); } }
+@media (min-width: 769px) and (max-width: 1100px) { .hero { height: clamp(640px, 66vh, 820px); } .hero-contenu { top: clamp(190px, 22vh, 230px); } }

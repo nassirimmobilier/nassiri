@@ -16,7 +16,7 @@
         '<span class="mention-demo">Photo d’illustration</span>' +
       "</div>" +
       '<div class="carte-corps">' +
-        '<p class="carte-lieu">' + A.esc(ex.ville) + " · " + A.esc(ex.quartier) + "</p>" +
+        '<p class="carte-lieu">' + A.esc([ex.ville, ex.quartier].filter(Boolean).join(" · ")) + "</p>" +
         '<h3 class="carte-titre">' + A.esc(ex.titre) + "</h3>" +
         "<p>" + A.esc(ex.description) + "</p>" +
         '<a class="btn btn-ligne" href="recherche.html?type=' + encodeURIComponent(ex.type) + '">Confier une recherche similaire</a>' +

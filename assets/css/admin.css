@@ -270,3 +270,13 @@ button.a-ligne:hover { background: var(--ivoire); }
 .a-apercu-corps p { line-height: 1.55; }
 .a-imp-fin h2 { display: flex; gap: 8px; align-items: center; }
 @media (max-width: 720px) { .a-entete-btns { width: 100%; } .a-entete-btns .btn { flex: 1 1 auto; } }
+
+/* V9.2 — import de contacts Samsar */
+.a-simp-liste { display: grid; gap: 6px; margin-top: 10px; max-height: 60vh; overflow: auto; }
+.a-simp-ligne { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 8px; background: var(--ivoire-2, #f4f1ea); }
+.a-simp-nom { min-width: 0; }
+.a-simp-tel { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+.a-simp-info { grid-column: 2 / 4; color: #8a5a00; }
+.a-simp-doublon, .a-simp-invalide { opacity: .75; }
+.a-simp-invalide .a-simp-info { color: #8a1f11; }
+.a-liste-aide { padding-left: 18px; line-height: 1.5; }

@@ -6,7 +6,7 @@
   "use strict";
   var A = window.ATLAS, e = A.esc, ico = A.icone;
   var racine, D = null;
-  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", filtreSamsar: "", imp: null, recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
+  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", filtreSamsar: "", imp: null, simp: null, recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
   var LIB_STATUT = { brouillon: "Brouillon", en_attente: "En attente de validation", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé", refuse: "Refusé" };
   var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
@@ -465,6 +465,38 @@
   function ouiImp(v) { return v === true || /^(oui|true|1|yes)$/i.test(String(v).trim()) ? "oui" : "non"; }
   function nettoyerTexteImp(v, max) { return String(v === null || v === undefined ? "" : v).replace(/<[^>]*>/g, "").replace(/\r\n?/g, "\n").trim().slice(0, max || 6000); }
 
+  /* V9.3 : accepte aussi le « dossier annonce » (import_format nassiri-real-estate-listing-package) */
+  function adapterDossier(o) {
+    if (!o || typeof o !== "object" || o.bien || !(o.import_format || (o.title && o.images))) return o;
+    var loc = o.location || {}, T = A.types, texteType = norm(o.property_type || o.type || "");
+    var type = T.filter(function (x) { return texteType.indexOf(norm(x)) !== -1; })[0] || "";
+    var eqSite = A.equipements, eq = (o.amenities || []).map(function (x) {
+      var nx = norm(x), s = eqSite.filter(function (q) { return nx.indexOf(norm(q)) === 0 || (norm(q) === "terrasse" && nx.indexOf("terrasse") === 0) || (norm(q) === "vue degagee" && /^vue/.test(nx)); })[0];
+      return s || String(x);
+    });
+    var notes = [], lt = o.land_title || {}, ta = o.tourism_approval || {}, act = o.tourism_activity || {};
+    if (o.seller_authorization_note) notes.push(o.seller_authorization_note + ".");
+    if (lt.verification) notes.push("Titre foncier : " + lt.verification + ".");
+    if (ta.verification) notes.push("Agrément touristique : " + ta.verification + ".");
+    if (act.listing_url) notes.push("Annonce en ligne de l’activité : " + act.listing_url);
+    if (o.commission_terms) notes.push("Commission : " + o.commission_terms); else notes.push("Commission et conditions du mandat : non communiquées.");
+    if (o.owner_contact) notes.push("Contact propriétaire : " + o.owner_contact);
+    var quartier = String(loc.area || "").split("/").map(function (x) { return x.trim(); }).filter(Boolean).pop() || "";
+    if (quartier === loc.city) quartier = "";
+    var imgs = (o.images || []).slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+    var apiv = (o.unknown_or_to_verify || []).slice();
+    if (!type && o.property_type) apiv.unshift("Type de bien « " + o.property_type + " » : à choisir dans la liste du site.");
+    return {
+      format: "nassiri-annonce", version: 1, reference: o.external_reference || "",
+      bien: { titre: o.title, type: type, transaction: o.transaction_type || "vente", prix: o.price, devise: o.currency, prix_sur_demande: false,
+        ville: loc.city || "", quartier: quartier, surface: o.built_area_m2, terrain: o.land_area_m2, chambres: o.bedrooms, sdb: o.bathrooms,
+        description: o.description, equipements: eq, juridique: lt.titled ? (/d[ée]clar/i.test(lt.verification || "") ? "Titré (déclaré par le propriétaire)" : "Titré") : "",
+        adresse_privee: loc.street_address || "", notes_privees: notes.join("\n") },
+      photos: imgs.map(function (i) { return { fichier: i.file, principale: !!i.cover }; }),
+      a_verifier: apiv
+    };
+  }
+
   function lireJsonImp(texte) {
     var t = String(texte || "").replace(/^﻿/, "").trim();
     if (!t) throw new Error("Collez d’abord le texte de l’annonce.");
@@ -472,8 +504,8 @@
     var a = t.indexOf("{"), z = t.lastIndexOf("}");
     if (a === -1 || z <= a) throw new Error("Ce texte ne ressemble pas à une annonce (aucun bloc { … } trouvé).");
     t = t.slice(a, z + 1);
-    try { return JSON.parse(t); } catch (x1) {
-      try { return JSON.parse(t.replace(/[“”]/g, '"')); }
+    try { return adapterDossier(JSON.parse(t)); } catch (x1) {
+      try { return adapterDossier(JSON.parse(t.replace(/[“”]/g, '"'))); }
       catch (x2) { throw new Error("Le texte n’est pas un JSON valide : " + x1.message); }
     }
   }
@@ -502,6 +534,8 @@
     if (src.devise && !/^(dh|mad|dhs|dirhams?)$/i.test(String(src.devise).trim())) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(src.devise, 10) + " » : le site affiche uniquement des dirhams (DH). Vérifiez le prix." });
     if (src.statut && norm(src.statut) !== "brouillon") al.push({ niveau: "info", texte: "Le statut du fichier est ignoré : l’annonce arrive toujours en brouillon tant que vous ne cliquez pas sur « Valider et publier »." });
     Object.keys(src).forEach(function (k) { if (IMP_CONNUS.indexOf(k) === -1) al.push({ niveau: "info", texte: "Champ « " + nettoyerTexteImp(k, 40) + " » ignoré (il n’existe pas sur le site)." }); });
+    var ref = nettoyerTexteImp((brut && brut.reference) || src.reference, 60).replace(/\s+/g, "-");
+    if (ref && b.notes_privees.indexOf("Réf. externe : " + ref) === -1) b.notes_privees = ("Réf. externe : " + ref + (b.notes_privees ? "\n" + b.notes_privees : "")).slice(0, 3000);
     var av = (brut && brut.a_verifier) || src.a_verifier;
     (av instanceof Array ? av : av ? [av] : []).slice(0, 30).forEach(function (x) { var s = nettoyerTexteImp(x, 300); if (s) al.push({ niveau: "attention", texte: "À vérifier : " + s }); });
     return { bien: b, alertes: al, photosDecl: (brut && brut.photos) || src.photos || null };
@@ -521,8 +555,8 @@
     if (!b.ville) al.push({ niveau: "attention", texte: "Ville non renseignée." });
     if (!b.description) al.push({ niveau: "attention", texte: "Aucune description." });
     if (!I.photos.length) al.push({ niveau: "attention", texte: "Aucune photo : vous pourrez en ajouter ensuite depuis la fiche du bien." });
-    var tn = norm(b.titre).replace(/[^a-z0-9]/g, "");
-    var dbl = D.biens.filter(function (x) { return (tn && norm(x.titre).replace(/[^a-z0-9]/g, "") === tn) || (n(x.prix) && n(x.prix) === p && norm(x.ville) === norm(b.ville) && n(x.terrain) === te && n(x.surface) === s); })[0];
+    var tn = norm(b.titre).replace(/[^a-z0-9]/g, ""), mref = String(b.notes_privees || "").match(/Réf\. externe : (\S+)/), cref = mref ? "Réf. externe : " + mref[1] : "";
+    var dbl = D.biens.filter(function (x) { return (cref && String(x.notes_privees || "").indexOf(cref) !== -1) || (tn && norm(x.titre).replace(/[^a-z0-9]/g, "") === tn) || (n(x.prix) && n(x.prix) === p && norm(x.ville) === norm(b.ville) && n(x.terrain) === te && n(x.surface) === s); })[0];
     I.doublon = dbl || null;
     if (dbl) al.push({ niveau: "doublon", texte: "Doublon possible : « " + dbl.titre + " » (réf. " + dbl.id + ") existe déjà sur le site. Cochez la case de confirmation pour créer quand même." });
     return I.alertesFixes.concat(al);
@@ -593,7 +627,8 @@
             else liste.push({ cle: cle, principale: princ });
           });
         } else {
-          noms.filter(function (k) { return mimeExt(k); }).sort().forEach(function (k) { liste.push({ cle: k, principale: false }); });
+          var imgsZip = noms.filter(function (k) { return mimeExt(k); }).sort(), web = imgsZip.filter(function (k) { return /(^|\/)(photos|photos_web)\//i.test(k) && !/original/i.test(k); });
+          (web.length ? web : imgsZip.filter(function (k) { return !/original/i.test(k); })).forEach(function (k) { liste.push({ cle: k, principale: false }); });
         }
         var vus = {}; liste = liste.filter(function (x) { if (vus[x.cle]) return false; vus[x.cle] = 1; return true; });
         noms.forEach(function (k) { if (!/\.json$/i.test(k) && !mimeExt(k)) alertes.push({ niveau: "info", texte: "Fichier ignoré (type non accepté) : " + nettoyerTexteImp(k.split("/").pop(), 60) }); });
@@ -759,6 +794,151 @@
     });
   }
 
+  /* ====================================================================== V9.2 : IMPORT DE CONTACTS SAMSAR */
+  var SIMP_MAX = 300;
+  var RE_TEL = /(\+?\d[\d\s().\-]{6,}\d)/;
+  function normTel(brut) {
+    var s = String(brut || "").trim(), plus = /^\s*(\+|00)/.test(s), d = s.replace(/\D/g, "");
+    if (/^00/.test(d)) d = d.slice(2);
+    if (!plus && /^0[5-7]\d{8}$/.test(d)) return "+212" + d.slice(1);
+    if (!plus && /^[5-7]\d{8}$/.test(d)) return "+212" + d;
+    if (/^212[5-7]\d{8}$/.test(d)) return "+" + d;
+    if (d.length < 8 || d.length > 15) return "";
+    return (plus || /^212/.test(d) ? "+" : "") + d;
+  }
+  function parserVcf(texte) {
+    var t = String(texte || "").replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, ""), res = [];
+    t.split(/BEGIN:VCARD/i).slice(1).forEach(function (bloc) {
+      var nom = "", n = "", tels = [];
+      bloc.split("\n").forEach(function (l) {
+        var m = l.match(/^(?:[A-Za-z0-9\-]+\.)?([A-Za-z\-]+)(?:;[^:]*)?:(.*)$/); if (!m) return;
+        var k = m[1].toUpperCase(), v = m[2].trim();
+        if (k === "FN" && !nom) nom = v;
+        else if (k === "N" && !n) n = v.split(";").reverse().filter(Boolean).join(" ").trim();
+        else if (k === "TEL" && v) tels.push(v);
+      });
+      if (tels.length) res.push({ nom: nom || n, tels: tels });
+    });
+    return res;
+  }
+  function decouperCsv(texte) {
+    var t = String(texte || "").replace(/^﻿/, "").replace(/\r\n?/g, "\n"), prem = t.split("\n")[0] || "";
+    var sep = (prem.split(";").length > prem.split(",").length && prem.split(";").length >= prem.split("\t").length) ? ";" : (prem.split("\t").length > prem.split(",").length ? "\t" : ",");
+    var lignes = [], cell = "", ligne = [], q = false;
+    for (var i = 0; i < t.length; i++) {
+      var c = t[i];
+      if (q) { if (c === '"' && t[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === sep) { ligne.push(cell); cell = ""; }
+      else if (c === "\n") { ligne.push(cell); lignes.push(ligne); ligne = []; cell = ""; }
+      else cell += c;
+    }
+    ligne.push(cell); lignes.push(ligne);
+    return lignes;
+  }
+  function parserCellules(lignes) {
+    var res = [];
+    lignes.forEach(function (cells) {
+      var tels = [], noms = [];
+      cells.forEach(function (c) {
+        c = String(c || "").trim(); if (!c) return;
+        if (RE_TEL.test(c) && c.replace(/\D/g, "").length >= 8 && c.replace(/[\d\s+().\-]/g, "").length <= 2) tels.push(c.match(RE_TEL)[1]);
+        else if (RE_TEL.test(c) && c.replace(/\D/g, "").length >= 8) { var m = c.match(RE_TEL); tels.push(m[1]); var r = c.replace(m[1], " ").replace(/^[\s\-:;,|•]+|[\s\-:;,|•]+$/g, "").trim(); if (r) noms.push(r); }
+        else noms.push(c);
+      });
+      if (tels.length) res.push({ nom: noms.slice(0, 2).join(" ").slice(0, 120), tels: tels });
+    });
+    return res;
+  }
+  function analyserContacts(texte, nomFichier) {
+    var brut;
+    if (/\.vcf$/i.test(nomFichier || "") || /BEGIN:VCARD/i.test(texte)) brut = parserVcf(texte);
+    else if (/\.csv$/i.test(nomFichier || "")) brut = parserCellules(decouperCsv(texte));
+    else brut = parserCellules(String(texte || "").replace(/\r\n?/g, "\n").split("\n").map(function (l) { return [l]; }));
+    if (!brut.length) throw new Error("Aucun numéro de téléphone trouvé dans ce contenu.");
+    var existants = {}; (D.samsar || []).forEach(function (s) { var k = String(s.telephone || "").replace(/\D/g, "").slice(-9); if (k.length >= 8) existants[k] = s.nom; });
+    var vus = {}, lignes = [];
+    brut.slice(0, SIMP_MAX + 1).forEach(function (c) {
+      var tel = "", reste = [];
+      c.tels.forEach(function (t) { var nt = normTel(t); if (nt && !tel) tel = nt; else if (nt) reste.push(nt); });
+      var cle = tel.replace(/\D/g, "").slice(-9), etat2 = "ok", info = "";
+      if (!tel) { etat2 = "invalide"; info = "Numéro non reconnu : " + String(c.tels[0]).slice(0, 30); }
+      else if (existants[cle]) { etat2 = "doublon"; info = "Déjà dans le carnet : " + existants[cle]; }
+      else if (vus[cle]) { etat2 = "doublon"; info = "Présent plusieurs fois dans le fichier"; }
+      if (tel) vus[cle] = 1;
+      lignes.push({ nom: (c.nom || "").trim(), tel: tel || String(c.tels[0] || ""), autres: reste, etat: etat2, info: info, coche: etat2 === "ok" });
+    });
+    var depasse = brut.length > SIMP_MAX;
+    return { lignes: lignes.slice(0, SIMP_MAX), depasse: depasse, total: brut.length };
+  }
+  function lireDefautsSimp() {
+    var f = document.getElementById("form-simp"), S = etat.simp; if (!f || !S) return;
+    ["zone", "specialite", "source"].forEach(function (k) { if (f.elements[k]) S.defauts[k] = f.elements[k].value.trim(); });
+  }
+  function majCompteSimp() {
+    var S = etat.simp, n2 = S.lignes.filter(function (l) { return l.coche && l.etat !== "invalide"; }).length, b = document.getElementById("a-simp-go");
+    if (b) { b.textContent = "Importer " + n2 + " contact" + (n2 > 1 ? "s" : ""); b.disabled = !n2; }
+  }
+  function vueSamsarImport() {
+    var S = etat.simp;
+    if (!S) {
+      return '<section class="a-bloc"><h2>1. Choisir les contacts</h2><p class="a-aide">Importez vos contacts d’un coup : plus besoin de les saisir un par un. Rien n’est enregistré avant votre validation.</p>' +
+        '<div class="a-imp-choix"><label class="btn btn-vert a-imp-fichier" for="a-simp-fichier">' + ico("plus") + " Choisir un fichier de contacts (.vcf ou .csv)</label>" +
+        '<input class="sr" id="a-simp-fichier" type="file" accept=".vcf,.csv,.txt,text/vcard,text/x-vcard,text/csv,text/plain"></div><p class="a-aide" id="a-simp-progres" role="status" hidden></p></section>' +
+        '<section class="a-bloc"><h2>…ou coller une liste</h2><textarea id="a-simp-texte" rows="8" placeholder="Un contact par ligne, par exemple :\nKarim Guéliz +212 6 12 34 56 78\nHassan - 0661 22 33 44\n0662334455" spellcheck="false"></textarea>' +
+        '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="simp-coller">Coller depuis le presse-papiers</button><button type="button" class="btn btn-vert" data-action="simp-analyser">Analyser la liste</button></div>' +
+        '<p class="a-aide">Astuce sur le terrain : dans WhatsApp, appuyez longuement sur le numéro du samsar, choisissez Copier, puis ici « Coller depuis le presse-papiers ». Répétez pour chaque numéro, puis « Analyser ». Le nom est facultatif. Les numéros marocains (06…, 07…) sont convertis au format international pour WhatsApp.</p></section>' +
+        '<section class="a-bloc"><h2>Comment récupérer vos contacts ?</h2><ul class="a-aide a-liste-aide"><li><strong>Google Contacts</strong> (Android, ou contacts.google.com sur ordinateur) : sélectionnez les contacts, Exporter, format vCard (.vcf) ou CSV.</li>' +
+        '<li><strong>iPhone / iCloud</strong> : sur icloud.com/contacts (depuis un ordinateur), sélectionnez les contacts, roue dentée, Exporter vCard. L’application Contacts de l’iPhone ne sait exporter qu’un contact à la fois.</li>' +
+        '<li><strong>WhatsApp</strong> n’offre pas d’export : enregistrez vos samsar dans vos contacts (idéalement avec une étiquette ou un groupe « Samsar »), puis exportez comme ci-dessus. Vous pouvez aussi copier-coller des numéros dans la zone ci-dessus.</li></ul></section>';
+    }
+    if (S.fini) {
+      return '<section class="a-bloc a-imp-fin"><h2>' + ico("coche") + " Import terminé</h2><p><strong>" + S.fini.ok + "</strong> contact" + (S.fini.ok > 1 ? "s" : "") + " ajouté" + (S.fini.ok > 1 ? "s" : "") + " au carnet" +
+        (S.fini.dbl ? " · " + S.fini.dbl + " déjà présent" + (S.fini.dbl > 1 ? "s" : "") : "") + (S.fini.err ? " · " + S.fini.err + " en erreur" : "") + ".</p>" +
+        (S.fini.msg ? '<p class="a-aide">' + e(S.fini.msg) + "</p>" : "") +
+        '<div class="a-form-pied"><button type="button" class="btn btn-vert" data-action="aller" data-vue="samsars">Voir le carnet Samsar</button><button type="button" class="btn btn-ligne" data-action="simp-nouveau">Importer d’autres contacts</button></div></section>';
+    }
+    var nbOk = S.lignes.filter(function (l) { return l.etat === "ok"; }).length, nbDbl = S.lignes.filter(function (l) { return l.etat === "doublon"; }).length, nbInv = S.lignes.filter(function (l) { return l.etat === "invalide"; }).length;
+    return '<section class="a-bloc"><h2>2. Vérifier les contacts</h2><p>' + S.lignes.length + " contact" + (S.lignes.length > 1 ? "s" : "") + " lu" + (S.lignes.length > 1 ? "s" : "") + " : <strong>" + nbOk + " nouveau" + (nbOk > 1 ? "x" : "") + "</strong>" +
+      (nbDbl ? " · " + nbDbl + " déjà présent" + (nbDbl > 1 ? "s" : "") : "") + (nbInv ? " · " + nbInv + " numéro" + (nbInv > 1 ? "s" : "") + " invalide" + (nbInv > 1 ? "s" : "") : "") + ".</p>" +
+      (S.depasse ? '<ul class="a-imp-alertes"><li class="a-imp-attention">Plus de ' + SIMP_MAX + " contacts : seuls les " + SIMP_MAX + " premiers sont affichés. Importez le reste dans un second temps.</li></ul>" : "") +
+      '<div class="a-puces"><button type="button" class="puce" data-action="simp-tout" data-v="1">Tout cocher</button><button type="button" class="puce" data-action="simp-tout" data-v="0">Tout décocher</button></div>' +
+      '<div class="a-simp-liste">' + S.lignes.map(function (l, i) {
+        return '<div class="a-simp-ligne a-simp-' + l.etat + '"><label class="a-case"><input type="checkbox" data-action-change="simp-coche" data-i="' + i + '"' + (l.coche ? " checked" : "") + (l.etat === "invalide" ? " disabled" : "") + "><span class=\"sr\">Importer ce contact</span></label>" +
+          '<input class="a-simp-nom" data-action-change="simp-nom" data-i="' + i + '" value="' + e(l.nom) + '" placeholder="Nom (facultatif)" aria-label="Nom du contact"><span class="a-simp-tel">' + e(l.tel) + "</span>" + (l.info ? '<small class="a-simp-info">' + e(l.info) + "</small>" : "") + "</div>";
+      }).join("") + "</div></section>" +
+      '<form id="form-simp" class="a-bloc a-form" novalidate><h2>3. Informations communes (facultatif)</h2><p class="a-aide">Appliquées à tous les contacts importés. Statut : « À contacter ».</p><div class="a-grille">' +
+        champ("zone", "Zone ou quartiers", S.defauts.zone, "") + champ("specialite", "Spécialité", S.defauts.specialite, "") + champ("source", "Comment les avez-vous connus ?", S.defauts.source, "", "plein") + "</div>" +
+      '<div class="a-barre"><div class="a-barre-statut"><small id="a-simp-progres" role="status" hidden></small></div><div class="a-barre-actions"><button type="button" class="btn btn-ligne" data-action="simp-nouveau">Annuler</button>' +
+      '<button type="button" class="btn btn-vert" id="a-simp-go" data-action="simp-go">Importer</button></div></div></form>';
+  }
+  function infoSimp(t) { var i = document.getElementById("a-simp-progres"); if (i) { i.textContent = t; i.hidden = !t; } }
+  function demarrerSimp(texte, nom) {
+    try { var r = analyserContacts(texte, nom); etat.simp = { lignes: r.lignes, depasse: r.depasse, defauts: { zone: "", specialite: "", source: "Import de contacts du " + A.dateFr(aujourdhui()) }, occupe: false, fini: null }; rendre(); window.scrollTo(0, 0); setTimeout(majCompteSimp, 0); }
+    catch (x) { A.message(x.message); }
+  }
+  function lancerSimp() {
+    var S = etat.simp; if (!S || S.occupe) return;
+    lireDefautsSimp();
+    var cibles = S.lignes.filter(function (l) { return l.coche && l.etat !== "invalide"; });
+    if (!cibles.length) { A.message("Cochez au moins un contact."); return; }
+    S.occupe = true; document.querySelectorAll('[data-action="simp-go"],[data-action="simp-nouveau"]').forEach(function (b) { b.disabled = true; });
+    var ok = 0, dbl = 0, err = 0, i = 0, msg = "", stop = false;
+    cibles.reduce(function (p, l) {
+      return p.then(function () {
+        if (stop) return;
+        infoSimp("Import " + (++i) + " sur " + cibles.length + "…");
+        var s = { nom: l.nom || "Contact " + l.tel, telephone: l.tel, zone: S.defauts.zone, specialite: S.defauts.specialite, source: S.defauts.source, statut: "À contacter" };
+        if (l.autres.length) s.notes = "Autres numéros : " + l.autres.join(", ");
+        return A.api("samsarEnregistrer", { samsar: s }).then(function () { ok++; }, function (er) {
+          if (er.code === "AUTH") { stop = true; msg = er.message; err++; } else if (/déjà enregistré/.test(er.message)) dbl++; else { err++; msg = er.message; }
+        });
+      });
+    }, Promise.resolve()).then(function () { return charger(); }).then(function () {
+      S.occupe = false; S.fini = { ok: ok, dbl: dbl, err: err, msg: msg }; rendre(); window.scrollTo(0, 0);
+    }, function (er) { S.occupe = false; A.message(er.message); rendre(); });
+  }
+
   /* ====================================================================== PROSPECTS */
   function vueProspects() {
     var q = etat.recherche.toLowerCase(), t = aujourdhui();
@@ -845,11 +1025,11 @@
   var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["prospects", "Prospects", "personnes"], ["samsars", "Samsar", "cle"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
   function rendre() {
     if (!D) { racine.innerHTML = vueConnexion(); return; }
-    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
-    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", import: "Importer une annonce IA", samsars: "Samsar", samsar: etat.id ? (samsar(etat.id) || {}).nom || "Samsar" : "Ajouter un samsar", demandes: "Demandes", parametres: "Paramètres" };
-    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres, samsars: vueSamsars, samsar: vueSamsar, import: vueImport }[v]();
-    var action = v === "biens" || v === "tableau" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="imp-ouvrir">' + ico("plus") + ' Importer une annonce IA</button><button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button></div>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : v === "samsars" ? '<button class="btn btn-or" data-action="aller" data-vue="samsar">' + ico("plus") + " Ajouter un samsar</button>" : "";
-    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : "";
+    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
+    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", import: "Importer une annonce IA", samsarimport: "Importer des contacts", samsars: "Samsar", samsar: etat.id ? (samsar(etat.id) || {}).nom || "Samsar" : "Ajouter un samsar", demandes: "Demandes", parametres: "Paramètres" };
+    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres, samsars: vueSamsars, samsar: vueSamsar, import: vueImport, samsarimport: vueSamsarImport }[v]();
+    var action = v === "biens" || v === "tableau" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="imp-ouvrir">' + ico("plus") + ' Importer une annonce IA</button><button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button></div>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : v === "samsars" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="simp-ouvrir">' + ico("plus") + ' Importer des contacts</button><button class="btn btn-or" data-action="aller" data-vue="samsar">' + ico("plus") + " Ajouter un samsar</button></div>" : "";
+    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : "";
     racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Pro">' +
       MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
@@ -877,6 +1057,16 @@
       rendre();
     },
     "imp-creer": function (b) { creerImp(b.dataset.publier === "1"); },
+    "simp-ouvrir": function () { etat.simp = null; aller("samsarimport"); },
+    "simp-nouveau": function () { etat.simp = null; rendre(); },
+    "simp-analyser": function () { var ta = document.getElementById("a-simp-texte"); demarrerSimp(ta ? ta.value : "", ""); },
+    "simp-tout": function (b) { var v = b.dataset.v === "1"; etat.simp.lignes.forEach(function (l) { if (l.etat !== "invalide") l.coche = v; }); lireDefautsSimp(); rendre(); majCompteSimp(); },
+    "simp-go": function () { lancerSimp(); },
+    "simp-coller": function () {
+      var ta = document.getElementById("a-simp-texte");
+      if (!navigator.clipboard || !navigator.clipboard.readText) { A.message("Collez à la main dans la zone (appui long, puis Coller)."); return; }
+      navigator.clipboard.readText().then(function (t) { if (!t.trim()) { A.message("Le presse-papiers est vide."); return; } ta.value = (ta.value ? ta.value.replace(/\s+$/, "") + "\n" : "") + t; A.message("Collé : ajoutez d’autres numéros ou cliquez sur « Analyser »."); }, function () { A.message("Collez à la main dans la zone (appui long, puis Coller)."); });
+    },
     "filtre-prospect": function (b) { etat.filtreProspect = b.dataset.v; rendre(); },
     "filtre-samsar": function (b) { etat.filtreSamsar = b.dataset.v; rendre(); },
     "relance-samsar": function (b) {
@@ -983,6 +1173,8 @@
       faire("bienEnregistrer", { bien: { id: x.id, statut: s.value } }, "Statut : " + LIB_STATUT[s.value] + ".").then(rendre, rendre);
     },
     "imp-maj": function () { lireFormImp(); majApercuImp(); },
+    "simp-coche": function (s) { etat.simp.lignes[parseInt(s.dataset.i, 10)].coche = s.checked; majCompteSimp(); },
+    "simp-nom": function (s) { etat.simp.lignes[parseInt(s.dataset.i, 10)].nom = s.value.trim(); },
     "modele-wa": function (s) { var m = MODELES.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(prospect(etat.id)); },
     "modele-wa-samsar": function (s) { var m = MODELES_SAMSAR.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(samsar(etat.id)); },
     "statut-visite": function (s) { faire("visiteStatut", { id: s.dataset.id, statut: s.value }, "Visite : " + s.value + ".").then(rendre, rendre); },
@@ -999,6 +1191,7 @@
     racine.addEventListener("change", function (ev) {
       var s = ev.target.closest("[data-action-change]");
       if (s) return CHANGEMENTS[s.dataset.actionChange](s);
+      if (ev.target.id === "a-simp-fichier" && ev.target.files.length) { var fc = ev.target.files[0]; ev.target.value = ""; if (fc.size > 5 * 1048576) { A.message("Fichier trop volumineux (5 Mo maximum)."); return; } fc.text().then(function (t) { demarrerSimp(t, fc.name); }); return; }
       if (ev.target.id === "a-imp-fichier" && ev.target.files.length) { var fi = ev.target.files[0]; ev.target.value = ""; importerFichier(fi); return; }
       if (ev.target.id === "f-photos" && ev.target.files.length) { var f = ev.target.files; envoyerPhotos(f).catch(function () {}); }
     });

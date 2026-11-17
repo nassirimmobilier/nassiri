@@ -95,7 +95,7 @@
     return /^https:\/\//.test(url) ? '<img src="' + A.esc(url) + '" referrerpolicy="no-referrer"' + attrs + ">" : ABSENT;
   };
   A.image = function (b, sizes) {
-    return A.photo(b.photos && b.photos[0], sizes, b.titre + " — " + b.ville + ", " + b.quartier);
+    return A.photo(b.photos && b.photos[0], sizes, b.titre + " — " + [b.ville, b.quartier].filter(Boolean).join(", "));
   };
   A.estIllustration = function (url) { return /^assets\/img\//.test(url || ""); };
   /* Si une image ne se charge pas, on affiche le visuel de remplacement */
@@ -137,7 +137,7 @@
         (A.estIllustration(b.photos[0]) ? '<span class="mention-demo">Visuel d’illustration</span>' : "") +
       "</div>" +
       '<div class="carte-corps">' +
-        '<p class="carte-lieu">' + A.esc(b.ville) + " · " + A.esc(b.quartier) + "</p>" +
+        '<p class="carte-lieu">' + A.esc([b.ville, b.quartier].filter(Boolean).join(" · ")) + "</p>" +
         '<h3 class="carte-titre">' + A.esc(b.titre) + "</h3>" +
         '<ul class="carte-carac">' + carac.join("") + "</ul>" +
         '<div class="carte-pied"><p class="carte-prix">' + A.prixAffiche(b) + "</p>" +

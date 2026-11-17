@@ -7,3 +7,6 @@
 - Bibliothèque ZIP embarquée (JSZip, MIT) : `assets/js/vendor/jszip.min.js`.
 - Docs : `docs/IMPORT-ANNONCE-IA.md`, exemple Dar Louka dans `docs/exemples-import/`.
 - **Google Apps Script inchangé : aucun redéploiement.** Publier uniquement les fichiers du site.
+
+## V9.1
+- Référence externe (`"reference"` dans le JSON) : enregistrée dans les notes privées et utilisée comme clé anti-doublon.

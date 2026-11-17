@@ -54,6 +54,8 @@ Le public voit uniquement la ville et le quartier.
 ## Samsar (carnet de réseau)
 Onglet **Samsar** : un annuaire de vos intermédiaires (nom, téléphone, zone, spécialité, commission, statut, notes). Filtre par statut, recherche, relances programmables (apparaissent dans « À faire » du tableau de bord) et messages WhatsApp prêts à envoyer (premier contact, biens, relance, remerciement). Le samsar n'a pas de connexion.
 
+**Importer des contacts** : bouton en haut de l'onglet. Fichier .vcf ou .csv exporté de Google Contacts / iCloud, ou numéros collés. Les doublons et numéros invalides sont signalés avant l'import.
+
 ## Tableau de bord
 Biens actifs, biens vendus, prospects, demandes de visite, favoris, dernières demandes, biens les
 plus consultés et actions à effectuer.

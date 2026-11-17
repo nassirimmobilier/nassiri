@@ -50,7 +50,7 @@
   /* ====================================================================== CONNEXION */
   function vueConnexion(erreur) {
     return '<div class="a-connexion"><form class="a-connexion-carte" id="form-connexion">' +
-      '<img class="a-connexion-logo" src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate">' +
+      '<img class="a-connexion-logo" src="assets/img/logo/logo-nassiri-440.png" width="440" height="302" alt="Nassiri Real Estate">' +
       "<h1>Espace Agent</h1><p>Accès réservé aux apporteurs d’affaires de l’agence.</p>" +
       (A.demo ? '<div class="a-note">' + ico("info") + "<div><strong>Mode démonstration</strong><br>Les données sont fictives, enregistrées sur cet appareil.<br>Identifiants de démonstration : <code>youssef.exemple@example.com</code> / <code>agent-demo</code></div></div>" : "") +
       '<label for="f-email">E-mail</label><input id="f-email" name="email" type="email" autocomplete="username" required>' +
@@ -176,7 +176,7 @@
     var corps = { biens: vueBiens, bien: vueBien }[v]();
     var action = v === "biens" ? '<button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Proposer un bien</button>" : "";
     var retour = v === "bien" ? "biens" : "";
-    racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-clair-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Agent">' +
+    racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-nassiri-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Agent">' +
       MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
       '<main class="a-principal">' + (A.demo ? '<p class="a-bandeau-demo">' + ico("info") + " Mode démonstration — données fictives enregistrées sur cet appareil.</p>" : "") +

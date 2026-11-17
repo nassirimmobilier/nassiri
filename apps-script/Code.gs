@@ -12,7 +12,8 @@
  */
 
 var VERSION = '2.0';
-var BUILD = 'V9.8 - PIN automatique';   // visible en ouvrant l'adresse du script dans un navigateur
+var COLONNE_PIN_OK = false;          // vérification de la colonne pin_visible faite une seule fois par exécution
+var BUILD = 'V10 - codes PIN visibles';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -35,7 +36,7 @@ var ONGLETS = {
   FAVORIS: ['date', 'bien_id', 'action'],
   ALERTES: ['id', 'date', 'type', 'prospect_id', 'bien_id', 'resume', 'lu', 'email_envoye'],
   PARAMETRES: ['cle', 'valeur'],
-  AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation'],
+  AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation', 'pin_visible'],
   SAMSAR: ['id', 'date_creation', 'nom', 'telephone', 'zone', 'specialite', 'source', 'statut', 'commission', 'notes', 'date_relance', 'dernier_contact', 'date_maj'],
   MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre']
 };
@@ -144,6 +145,14 @@ function feuille_(nom) {
     f.getRange(1, 1, 1, cols.length).setValues([cols]);
     f.setFrozenRows(1);
   }
+  if (f && nom === 'AGENTS' && !COLONNE_PIN_OK) {          // colonne « pin_visible » ajoutée après l'installation : création automatique
+    var colPin = ONGLETS.AGENTS.indexOf('pin_visible') + 1;
+    if (String(f.getRange(1, colPin).getValue()) !== 'pin_visible') {
+      f.getRange(1, colPin, f.getMaxRows(), 1).setNumberFormat('@');
+      f.getRange(1, colPin).setValue('pin_visible');
+    }
+    COLONNE_PIN_OK = true;
+  }
   if (!f) throw erreur_('Onglet « ' + nom + ' » introuvable : lancez l’installation depuis le menu Nassiri Real Estate.', 'INSTALLATION');
   return f;
 }
@@ -201,6 +210,8 @@ function hacher_(motDePasse, sel) {
   for (var i = 0; i < 300; i++) h = hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h + sel, Utilities.Charset.UTF_8));
   return h;
 }
+/* Les codes PIN restent visibles pour l'administrateur jusqu'à l'action « Sécuriser les codes » (propriété CODES_VISIBLES = non). */
+function codesVisibles_() { return PropertiesService.getScriptProperties().getProperty('CODES_VISIBLES') !== 'non'; }
 /* Code PIN à 6 chiffres tiré au hasard (aléa sécurisé des identifiants Google, sans biais : on ne garde que les chiffres 0 à 9). */
 function genererPin_() {
   var pin = '';
@@ -443,10 +454,10 @@ var ADMIN = {
     var favoris = {};
     lire_('FAVORIS').forEach(function (f) { favoris[f.bien_id] = (favoris[f.bien_id] || 0) + (parseInt(f.action, 10) || 0); });
     var param = {}; lire_('PARAMETRES').forEach(function (p) { param[p.cle] = p.valeur; });
-    var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation }; });
+    var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation, pin_visible: codesVisibles_() ? a.pin_visible : '' }; });
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
-      agents: agents, samsar: tous_('SAMSAR'), motifsRefus: tous_('MOTIFS_REFUS'),
+      agents: agents, codes_visibles: codesVisibles_(), samsar: tous_('SAMSAR'), motifsRefus: tous_('MOTIFS_REFUS'),
       listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsSamsar: STATUTS_SAMSAR, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
   },
 
@@ -565,7 +576,7 @@ var ADMIN = {
       var avant = trouver_('AGENTS', s.id);
       if (!avant) throw erreur_('Agent introuvable.', 'INTROUVABLE');
       if (a.email && a.email.toLowerCase() !== avant.email.toLowerCase() && trouverAgentParEmail_(a.email)) throw erreur_('Un agent utilise déjà cet e-mail.');
-      if (s.motDePasse) { if (String(s.motDePasse).length < 8) throw erreur_('Le mot de passe doit contenir au moins 8 caractères.'); a.sel = Utilities.getUuid(); a.hachage = hacher_(s.motDePasse, a.sel); }
+      if (s.motDePasse) { if (String(s.motDePasse).length < 8) throw erreur_('Le mot de passe doit contenir au moins 8 caractères.'); a.sel = Utilities.getUuid(); a.hachage = hacher_(s.motDePasse, a.sel); a.pin_visible = ''; }
       return { agent: sansClefs_(modifier_('AGENTS', s.id, a), ['sel', 'hachage']) };
     }
     if (!a.nom) throw erreur_('Indiquez un nom.');
@@ -575,15 +586,22 @@ var ADMIN = {
     var pin = s.motDePasse ? '' : genererPin_(), secret = s.motDePasse ? String(s.motDePasse) : pin;
     if (secret.length < 6) throw erreur_('Le code doit contenir au moins 6 caractères.');
     a.id = identifiant_('AG'); a.actif = a.actif || 'oui'; a.date_creation = maintenant_();
-    a.sel = Utilities.getUuid(); a.hachage = hacher_(secret, a.sel);
+    a.sel = Utilities.getUuid(); a.hachage = hacher_(secret, a.sel); a.pin_visible = (pin && codesVisibles_()) ? pin : '';
     return { agent: sansClefs_(ajouter_('AGENTS', a), ['sel', 'hachage']), pin: pin };
+  },
+  /* Sécuriser : efface tous les codes visibles et ne les conserve plus. Les codes déjà donnés aux agents continuent de fonctionner. */
+  codesSecuriser: function () {
+    var f = feuille_('AGENTS'), col = ONGLETS.AGENTS.indexOf('pin_visible') + 1, n = f.getLastRow() - 1;
+    if (n > 0) f.getRange(2, col, n, 1).clearContent();
+    PropertiesService.getScriptProperties().setProperty('CODES_VISIBLES', 'non');
+    return { codes_visibles: false };
   },
   /* Nouveau code PIN (code perdu) : l'ancien cesse de fonctionner. Le nouveau n'est renvoyé qu'une fois. */
   agentNouveauCode: function (d) {
     var a = trouver_('AGENTS', d.id);
     if (!a) throw erreur_('Agent introuvable.', 'INTROUVABLE');
     var pin = genererPin_(), sel = Utilities.getUuid();
-    modifier_('AGENTS', a.id, { sel: sel, hachage: hacher_(pin, sel) });
+    modifier_('AGENTS', a.id, { sel: sel, hachage: hacher_(pin, sel), pin_visible: codesVisibles_() ? pin : '' });
     CacheService.getScriptCache().remove('echecs_agent_' + String(a.email || '').toLowerCase().slice(0, 120));
     return { agent: sansClefs_(trouver_('AGENTS', a.id), ['sel', 'hachage']), pin: pin };
   },

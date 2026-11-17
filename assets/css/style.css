@@ -769,3 +769,10 @@ button.wa-contact { width: 100%; text-align: left; background: #fff; font: inher
 .stats-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .stats-actions .btn { flex: 1 1 140px; min-height: 46px; }
 @media (max-width: 820px) { .avec-barre-contact .stats-bandeau { bottom: 88px; } }
+
+/* ---------- V9.5 : nouveau logo (carré) — accueil + pied de page ---------- */
+.entete-logo.logo-carre { width: clamp(120px, 10.5vw, 160px); margin-top: 8px; }
+.pied-logo[src*="logo-nouveau"] { width: clamp(140px, 11vw, 190px); }
+@media (max-width: 1100px) { .entete-logo.logo-carre { width: clamp(110px, 14vw, 140px); } }
+@media (max-width: 640px) { .entete-logo.logo-carre { width: 96px; } .hero { padding-top: 200px; } }
+@media (min-width: 1101px) { .hero { height: clamp(600px, 63vh, 800px); } .hero-contenu { top: clamp(190px, 23vh, 250px); } }

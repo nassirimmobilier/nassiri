@@ -1,0 +1,155 @@
+/* NASSIRI REAL ESTATE — Catalogue : filtres dynamiques, tri, favoris, chargement progressif */
+(function () {
+  "use strict";
+  var A = window.ATLAS;
+  var CHAMPS = ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres", "tri", "favoris"];
+  var affiches = 0;
+
+  function lireUrl() {
+    var p = new URLSearchParams(location.search), e = {};
+    CHAMPS.forEach(function (c) { e[c] = p.get(c) || ""; });
+    /* Compatibilité avec le moteur de la page d'accueil : budget=min-max */
+    var b = p.get("budget");
+    if (b) { var m = b.split("-"); e.bmin = m[0] || ""; e.bmax = m[1] || ""; }
+    if (!e.tri) e.tri = "recent";
+    return e;
+  }
+  function ecrireUrl(e) {
+    var p = new URLSearchParams();
+    CHAMPS.forEach(function (c) { if (e[c] && !(c === "tri" && e[c] === "recent")) p.set(c, e[c]); });
+    var q = p.toString();
+    history.replaceState(null, "", location.pathname + (q ? "?" + q : ""));
+  }
+
+  function filtrer(e) {
+    var favs = A.favoris.lire();
+    var l = A.disponibles().filter(function (b) {
+      if (e.favoris && favs.indexOf(b.id) === -1) return false;
+      if (e.ville && b.ville !== e.ville) return false;
+      if (e.type && b.type !== e.type) return false;
+      if (e.transaction) {
+        var tb = b.transaction || "vente";
+        if (e.transaction === "location") { if (tb !== "location-longue" && tb !== "location-courte") return false; }
+        else if (tb !== e.transaction) return false;
+      }
+      if (e.bmin && b.prix < +e.bmin) return false;
+      if (e.bmax && b.prix > +e.bmax) return false;
+      if (e.surface) {
+        var tranche = e.surface.split("-"), sMin = +tranche[0] || 0, sMax = tranche[1] ? +tranche[1] : Infinity;
+        var s = Math.max(b.surface, b.type === "Terrain" ? b.terrain : 0);
+        if (s < sMin || s > sMax) return false;
+      }
+      if (e.chambres && b.chambres < +e.chambres) return false;
+      return true;
+    });
+    var tris = {
+      recent: function (a, b) { return new Date(b.date) - new Date(a.date); },
+      "prix-asc": function (a, b) { return a.prix - b.prix; },
+      "prix-desc": function (a, b) { return b.prix - a.prix; }
+    };
+    return l.sort(tris[e.tri] || tris.recent);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var form = document.getElementById("filtres");
+    var grille = document.getElementById("catalogue-grille");
+    var compteur = document.getElementById("resultats-compte");
+    var plus = document.getElementById("afficher-plus");
+    var vide = document.getElementById("aucun-resultat");
+    var titre = document.getElementById("catalogue-titre");
+    if (!form || !grille) return;
+    var etat = lireUrl();
+
+    /* Options des listes à partir des données réelles */
+    remplir(form.ville, A.villes, "Toutes les villes");
+    function remplir(sel, valeurs, defaut) {
+      sel.innerHTML = '<option value="">' + defaut + "</option>" +
+        valeurs.map(function (v) { return '<option value="' + A.esc(v) + '">' + A.esc(v) + "</option>"; }).join("");
+    }
+
+    function versFormulaire() {
+      ["ville", "bmin", "bmax", "surface", "chambres", "tri"].forEach(function (c) {
+        if (form[c]) form[c].value = etat[c];
+        if (form[c] && form[c].value !== etat[c]) etat[c] = form[c].value; /* valeur inconnue → ignorée */
+      });
+      document.querySelectorAll("[data-type]").forEach(function (b) {
+        var actif = b.dataset.type === etat.type;
+        b.classList.toggle("est-actif", actif); b.setAttribute("aria-pressed", actif);
+      });
+      document.querySelectorAll("[data-transaction]").forEach(function (b) {
+        var actif = b.dataset.transaction === etat.transaction;
+        b.classList.toggle("est-actif", actif); b.setAttribute("aria-pressed", actif);
+      });
+      var f = document.getElementById("filtre-favoris");
+      f.classList.toggle("est-actif", !!etat.favoris); f.setAttribute("aria-pressed", !!etat.favoris);
+    }
+
+    function rendre(reinitialiser) {
+      var l = filtrer(etat);
+      if (reinitialiser) affiches = A.config.parPage;
+      affiches = Math.max(affiches, A.config.parPage);
+      grille.innerHTML = l.slice(0, affiches).map(A.carte).join("");
+      compteur.textContent = l.length + (l.length > 1 ? " biens disponibles" : " bien disponible");
+      plus.hidden = affiches >= l.length;
+      plus.querySelector("span").textContent = "Afficher plus de biens (" + Math.max(l.length - affiches, 0) + ")";
+      vide.hidden = l.length > 0;
+      if (!vide.hidden) {
+        var titreVide = vide.querySelector("#aucun-resultat-titre"), texteVide = vide.querySelector("#aucun-resultat-texte"),
+          boutonReinit = vide.querySelector("[data-reinitialiser]"), lienStyle = vide.querySelector("#aucun-resultat-style"),
+          portefeuilleVide = A.disponibles().length === 0;
+        if (etat.favoris && A.favoris.lire().length === 0) {
+          titreVide.textContent = "Aucun favori"; texteVide.textContent = "Vous n’avez pas encore de favoris. Touchez le cœur d’un bien pour l’enregistrer sur cet appareil.";
+          boutonReinit.hidden = true; lienStyle.hidden = true;
+        } else if (portefeuilleVide) {
+          titreVide.textContent = "Notre portefeuille est en cours de constitution";
+          texteVide.textContent = "Nous sélectionnons actuellement les premiers biens à vous présenter. En attendant, confiez-nous votre recherche : nous vous recontactons dès qu’un bien correspond.";
+          boutonReinit.hidden = true; lienStyle.hidden = false;
+        } else {
+          titreVide.textContent = "Aucun bien à afficher"; texteVide.textContent = "Aucun bien ne correspond à ces critères pour le moment. Élargissez votre recherche ou réinitialisez les filtres.";
+          boutonReinit.hidden = false; lienStyle.hidden = true;
+        }
+      }
+      var libTransaction = { vente: "à vendre", location: "à louer" }[etat.transaction] || "à vendre et à louer";
+      titre.textContent = etat.favoris ? "Mes favoris" : "Nos biens " + libTransaction;
+      document.title = (etat.favoris ? "Mes favoris" : "Biens " + libTransaction + (etat.ville ? " à " + etat.ville : " au Maroc")) + " — Nassiri Real Estate";
+      var actifs = ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres", "favoris"].filter(function (c) { return etat[c]; }).length;
+      document.querySelectorAll("[data-filtres-actifs]").forEach(function (el) { el.textContent = actifs ? " (" + actifs + ")" : ""; });
+      /* Lien vers « Confiez-nous votre recherche » avec les critères déjà choisis (aucune donnée personnelle) */
+      var q = new URLSearchParams();
+      ["ville", "type", "transaction", "bmin", "bmax", "surface", "chambres"].forEach(function (c) { if (etat[c]) q.set(c, etat[c]); });
+      document.querySelectorAll("[data-lien-recherche]").forEach(function (a) { a.href = "recherche.html" + (q.toString() ? "?" + q.toString() : ""); });
+      ecrireUrl(etat);
+    }
+
+    function surChangement() {
+      ["ville", "bmin", "bmax", "surface", "chambres", "tri"].forEach(function (c) { etat[c] = form[c].value; });
+      /* Cohérence budget minimum / maximum */
+      if (etat.bmin && etat.bmax && +etat.bmin > +etat.bmax) { etat.bmax = ""; form.bmax.value = ""; }
+      rendre(true);
+    }
+    form.addEventListener("change", surChangement);
+    form.tri.addEventListener("change", surChangement); /* le tri est placé hors du formulaire */
+    form.addEventListener("submit", function (e) { e.preventDefault(); });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target.closest("[data-type]");
+      if (t) { etat.type = t.dataset.type; versFormulaire(); rendre(true); return; }
+      var tr = e.target.closest("[data-transaction]");
+      if (tr) { etat.transaction = tr.dataset.transaction; versFormulaire(); rendre(true); return; }
+      if (e.target.closest("#filtre-favoris")) { etat.favoris = etat.favoris ? "" : "1"; versFormulaire(); rendre(true); return; }
+      if (e.target.closest("[data-reinitialiser]")) {
+        etat = { ville: "", type: "", transaction: "", bmin: "", bmax: "", surface: "", chambres: "", tri: "recent", favoris: "" };
+        versFormulaire(); rendre(true); return;
+      }
+      if (e.target.closest("#afficher-plus")) { affiches += A.config.parPage; rendre(false); return; }
+      if (e.target.closest("[data-filtres-basculer]")) {
+        var ouvert = form.classList.toggle("est-ouvert");
+        e.target.closest("[data-filtres-basculer]").setAttribute("aria-expanded", ouvert);
+      }
+    });
+    /* En vue « Mes favoris », retirer un cœur met la liste à jour */
+    document.addEventListener("atlas:favoris", function () { if (etat.favoris) rendre(false); });
+
+    A.pret.then(function () { versFormulaire(); rendre(true); });
+  });
+})();

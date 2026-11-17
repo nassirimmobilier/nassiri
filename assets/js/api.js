@@ -63,7 +63,7 @@
     });
   };
 
-  /* Catalogue public, conservé 5 minutes pour une navigation rapide */
+  /* Catalogue public, conservé 1 minute pour une navigation rapide (ignoré lors d’un rafraîchissement) */
   var CLE_CAT = "nassiri_catalogue", catalogue;
   function normaliser(b) {
     var n = function (v) { return parseFloat(v) || 0; };
@@ -76,8 +76,11 @@
   A.charger = function (forcer) {
     if (catalogue && !forcer) return catalogue;
     var cache = null;
-    if (!forcer && !A.demo) { try { cache = JSON.parse(sessionStorage.getItem(CLE_CAT)); } catch (e) {} }
-    catalogue = (cache && Date.now() - cache.t < 3e5 ? Promise.resolve(cache.r) : A.api("catalogue").then(function (r) {
+    /* Un rafraîchissement (F5 / tirer pour actualiser) doit toujours montrer les biens à jour */
+    var actualisation = false;
+    try { var nav = performance.getEntriesByType("navigation")[0]; actualisation = !!nav && nav.type === "reload"; } catch (e) {}
+    if (!forcer && !actualisation && !A.demo) { try { cache = JSON.parse(sessionStorage.getItem(CLE_CAT)); } catch (e) {} }
+    catalogue = (cache && Date.now() - cache.t < 6e4 ? Promise.resolve(cache.r) : A.api("catalogue").then(function (r) {
       if (!A.demo) { try { sessionStorage.setItem(CLE_CAT, JSON.stringify({ t: Date.now(), r: r })); } catch (e) {} }
       return r;
     })).then(function (r) {

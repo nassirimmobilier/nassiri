@@ -9,7 +9,7 @@
    ========================================================================== */
 (function () {
   "use strict";
-  var CLE = "nassiri_demo_v3_";
+  var CLE = "nassiri_demo_v4_";
   var mem = {};
   function lire(k, defaut) {
     if (k in mem) return mem[k];

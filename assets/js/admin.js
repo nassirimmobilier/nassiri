@@ -6,7 +6,7 @@
   "use strict";
   var A = window.ATLAS, e = A.esc, ico = A.icone;
   var racine, D = null;
-  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", filtreSamsar: "", imp: null, simp: null, recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null };
+  var etat = { vue: "tableau", id: null, filtreBien: "", filtreProspect: "", filtreSamsar: "", imp: null, simp: null, recherche: "", sousVue: "recues", edition: null, occupe: "", refus: null, sub: null };
   var LIB_STATUT = { brouillon: "Brouillon", en_attente: "En attente de validation", publie: "Publié", "sous-offre": "Sous offre", vendu: "Vendu", archive: "Archivé", refuse: "Refusé" };
   var LIB_TRANSACTION = { vente: "Vente", "location-longue": "Location longue durée", "location-courte": "Location courte durée (saisonnière)" };
   var LIB_ALERTE = { contact: "Renseignements", visite: "Demande de visite", confier: "Bien proposé" };
@@ -70,7 +70,7 @@
   function nomAffiche(p) { return String(p.nom || "").replace(/^Exemple — /, ""); }
 
   /* ====================================================================== V8 : CODE PIN DES AGENTS + CARNET DE SAMSAR */
-  var LIEN_AGENT = function () { return new URL("agent.html", location.href).href; };
+  var LIEN_PRO = function () { return new URL("espace-pro.html", location.href).href; };
   function copierTexte(t) {
     if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t).then(function () { return true; }, function () { return false; });
     return new Promise(function (ok) {
@@ -78,19 +78,25 @@
       document.body.appendChild(z); z.select(); var r = false; try { r = document.execCommand("copy"); } catch (x) {} z.remove(); ok(r);
     });
   }
-  function messageAgent(ag, pin, nouveau) {
-    var nom = String(ag.nom || "").replace(/^Exemple — /, "");
+  /* Messages d'accès : même circuit pour les agents et pour les partenaires (notaires, avocats, promoteurs) */
+  function nomSalutation(p, role) {
+    var nom = String(p.nom || "").replace(/^Exemple — /, "");
+    return role === "partenaire" && (p.type === "notaire" || p.type === "avocat") ? "Maître " + nom : nom;
+  }
+  function messageAcces(p, pin, nouveau, role) {
+    var part = role === "partenaire", espace = part ? "Espace Pro" : "Espace Agent", nom = nomSalutation(p, role);
     return (nouveau
-      ? "Bonjour " + nom + ", voici votre nouveau code PIN pour l’Espace Agent Nassiri Real Estate. L’ancien code ne fonctionne plus."
-      : "Bonjour " + nom + ", bienvenue chez Nassiri Real Estate ! Votre Espace Agent est prêt. Vous pouvez y déposer vos biens et suivre vos demandes.") +
-      "\n\nLien : " + LIEN_AGENT() + "\nIdentifiant : " + ag.email + "\nCode PIN : " + pin +
+      ? "Bonjour " + nom + ", voici votre nouveau code PIN pour l’" + espace + " Nassiri Real Estate. L’ancien code ne fonctionne plus."
+      : "Bonjour " + nom + ", bienvenue chez Nassiri Real Estate ! Votre " + espace + " est prêt. " + (part ? "Vous y retrouvez les éléments que l’agence vous confie et vous pouvez nous écrire." : "Vous pouvez y déposer vos biens et suivre vos demandes.")) +
+      "\n\nLien : " + LIEN_PRO() + " (choisissez « " + (part ? "Partenaire" : "Agent") + " »)\nIdentifiant : " + p.email + "\nCode PIN : " + pin +
       "\n\nGardez ce code pour vous. En cas de perte, contactez-nous : nous vous en enverrons un nouveau.";
   }
+  function messageAgent(ag, pin, nouveau) { return messageAcces(ag, pin, nouveau, "agent"); }
   /* ---- Envoi du message d'accès : WhatsApp, Gmail (jamais l'application Mail), Partager (iPhone), Copier ---- */
   function estIOS() { var u = navigator.userAgent || ""; return /iPhone|iPad|iPod/.test(u) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); }
-  function sujetAgent(nouveau) { return nouveau ? "Votre nouveau code — Espace Agent Nassiri Real Estate" : "Votre accès à l’Espace Agent Nassiri Real Estate"; }
-  function ouvrirGmail(ag, texte, nouveau) {
-    var to = encodeURIComponent(ag.email || ""), su = encodeURIComponent(sujetAgent(nouveau)), bo = encodeURIComponent(texte);
+  function sujetAgent(nouveau, role) { var esp = role === "partenaire" ? "Espace Pro" : "Espace Agent"; return nouveau ? "Votre nouveau code — " + esp + " Nassiri Real Estate" : "Votre accès à l’" + esp + " Nassiri Real Estate"; }
+  function ouvrirGmail(ag, texte, nouveau, role) {
+    var to = encodeURIComponent(ag.email || ""), su = encodeURIComponent(sujetAgent(nouveau, role)), bo = encodeURIComponent(texte);
     var web = "https://mail.google.com/mail/?view=cm&fs=1&to=" + to + "&su=" + su + "&body=" + bo;
     if (estIOS()) {                       /* application Gmail si elle est installée, sinon Gmail dans le navigateur */
       var parti = false, suivre = function () { if (document.hidden) parti = true; };
@@ -99,34 +105,34 @@
       setTimeout(function () { document.removeEventListener("visibilitychange", suivre); if (!parti) window.open(web, "_blank", "noopener"); }, 1500);
     } else window.open(web, "_blank", "noopener");
   }
-  function boutonsEnvoi(ag, fiche) {
-    var num = numWa(ag.whatsapp || ag.telephone), at = function (t) { return (fiche ? 'data-action="envoi-agent" data-id="' + e(ag.id) + '" ' : "") + 'data-envoi="' + t + '"'; };
+  function boutonsEnvoi(ag, fiche, role) {
+    var num = numWa(ag.whatsapp || ag.telephone), at = function (t) { return (fiche ? 'data-action="envoi-' + (role || "agent") + '" data-id="' + e(ag.id) + '" ' : "") + 'data-envoi="' + t + '"'; };
     return (num ? '<button type="button" class="btn btn-vert" ' + at("wa") + ">WhatsApp</button>" : "") +
       (ag.email ? '<button type="button" class="btn btn-vert" ' + at("gmail") + ">Gmail</button>" : "") +
       (navigator.share ? '<button type="button" class="btn btn-ligne" ' + at("partager") + ">Partager</button>" : "") +
       '<button type="button" class="btn btn-ligne" ' + at("copie") + ">Copier le message</button>";
   }
-  function gererEnvoi(type, ag, texte, nouveau) {
+  function gererEnvoi(type, ag, texte, nouveau, role) {
     var num = numWa(ag.whatsapp || ag.telephone);
     if (type === "wa" && num) window.open("https://wa.me/" + num + "?text=" + encodeURIComponent(texte), "_blank", "noopener");
-    else if (type === "gmail") ouvrirGmail(ag, texte, nouveau);
-    else if (type === "partager" && navigator.share) navigator.share({ title: sujetAgent(nouveau), text: texte }).catch(function () {});
+    else if (type === "gmail") ouvrirGmail(ag, texte, nouveau, role);
+    else if (type === "partager" && navigator.share) navigator.share({ title: sujetAgent(nouveau, role), text: texte }).catch(function () {});
     else if (type === "copie") copierTexte(texte).then(function (ok) { A.message(ok ? "Message copié." : "Copie impossible : sélectionnez le texte à la main."); });
   }
   /* Boîte affichée après la création d'un agent ou d'un nouveau code */
-  function boiteCodeAgent(ag, pin, nouveau) {
+  function boiteCodeAgent(ag, pin, nouveau, role) {
     return new Promise(function (fini) {
-      var texte = messageAgent(ag, pin, nouveau), num = numWa(ag.whatsapp || ag.telephone);
+      var part = role === "partenaire", texte = messageAcces(ag, pin, nouveau, role || "agent"), num = numWa(ag.whatsapp || ag.telephone);
       var m = document.createElement("div"); m.className = "a-modale";
-      m.innerHTML = '<div class="a-modale-boite a-modale-large" role="dialog" aria-modal="true" aria-labelledby="a-pin-titre"><h2 id="a-pin-titre">' + (nouveau ? "Nouveau code créé" : "Agent créé") + " : " + e(ag.nom) + "</h2>" +
+      m.innerHTML = '<div class="a-modale-boite a-modale-large" role="dialog" aria-modal="true" aria-labelledby="a-pin-titre"><h2 id="a-pin-titre">' + (nouveau ? "Nouveau code créé" : (part ? "Partenaire créé" : "Agent créé")) + " : " + e(ag.nom) + "</h2>" +
         '<p class="a-pin-valeur" aria-label="Code PIN">' + e(pin) + "</p>" +
-        (D && D.codes_visibles === false ? '<p class="a-aide"><strong>Ce code ne sera plus affiché.</strong> Envoyez-le maintenant. S’il est perdu, utilisez « Nouveau code PIN » sur la fiche de l’agent.</p>' : '<p class="a-aide">Ce code reste visible dans la fiche de l’agent, pour que vous puissiez le renvoyer à tout moment.</p>') +
+        (D && D.codes_visibles === false ? '<p class="a-aide"><strong>Ce code ne sera plus affiché.</strong> Envoyez-le maintenant. S’il est perdu, utilisez « Nouveau code PIN » sur la fiche ' + (part ? "du partenaire" : "de l’agent") + '.</p>' : '<p class="a-aide">Ce code reste visible dans la fiche ' + (part ? "du partenaire" : "de l’agent") + ', pour que vous puissiez le renvoyer à tout moment.</p>') +
         '<label class="a-etiquette" for="a-pin-message">Message à envoyer</label><textarea id="a-pin-message" rows="9" readonly>' + e(texte) + "</textarea>" +
-        '<div class="a-modale-actions">' + boutonsEnvoi(ag, false) + '<button class="btn btn-ligne" data-r="fin">Fermer</button></div>' +
-        (num ? "" : '<p class="a-aide">Aucun numéro WhatsApp ou téléphone pour cet agent : copiez le message et envoyez-le vous-même.</p>') + "</div>";
+        '<div class="a-modale-actions">' + boutonsEnvoi(ag, false, role) + '<button class="btn btn-ligne" data-r="fin">Fermer</button></div>' +
+        (num ? "" : '<p class="a-aide">Aucun numéro WhatsApp ou téléphone pour ' + (part ? "ce partenaire" : "cet agent") + ' : copiez le message et envoyez-le vous-même.</p>') + "</div>";
       m.addEventListener("click", function (ev) {
         var env = ev.target.closest("[data-envoi]"), b = ev.target.closest("[data-r]");
-        if (env) gererEnvoi(env.dataset.envoi, ag, texte, nouveau);
+        if (env) gererEnvoi(env.dataset.envoi, ag, texte, nouveau, role);
         else if (b || ev.target === m) { m.remove(); fini(); }
       });
       document.body.appendChild(m);
@@ -144,7 +150,7 @@
       var m = document.createElement("div"); m.className = "a-modale";
       m.innerHTML = '<div class="a-modale-boite a-modale-large" role="alertdialog" aria-modal="true"><h2>Le code PIN n’a pas pu être créé</h2>' +
         '<p>Une erreur est survenue. Réessayez dans un instant. Si le problème continue, prévenez l’administrateur du site.</p>' +
-        (sansCode ? '<p class="a-aide">L’agent a été ajouté sans code : ouvrez sa fiche et cliquez sur <strong>Nouveau code PIN</strong> une fois le problème réglé.</p>' : "") +
+        (sansCode ? '<p class="a-aide">La fiche a été ajoutée sans code : ouvrez-la et cliquez sur <strong>Nouveau code PIN</strong> une fois le problème réglé.</p>' : "") +
         '<p class="a-aide">Référence de l’erreur : <strong>PIN-01</strong></p>' +
         '<div class="a-modale-actions"><button class="btn btn-vert" data-r="fin">Compris</button></div></div>';
       m.addEventListener("click", function (ev) { if (ev.target.closest("[data-r]") || ev.target === m) { m.remove(); fini(); } });
@@ -219,7 +225,17 @@
   }
   function charger() { return A.api("donnees").then(function (r) { D = r; try { sessionStorage.removeItem("nassiri_catalogue"); } catch (x) {} }); }
   function indicateur() { var i = document.getElementById("a-occupe"); if (i) { i.textContent = etat.occupe; i.hidden = !etat.occupe; } }
-  function aller(vue, id) { etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; rendre(); window.scrollTo(0, 0); }
+  function aller(vue, id) {
+    etat.vue = vue; etat.id = id || null; etat.edition = null; etat.recherche = ""; etat.refus = null; etat.sub = null; rendre(); window.scrollTo(0, 0);
+    /* Partenaires : on actualise les données (nouveaux messages, lots mis à jour par un promoteur) et, à l'ouverture d'une fiche, on marque ses messages comme lus */
+    if (vue === "partenaires" || vue === "partenaire") {
+      var meme = function () { return etat.vue === vue && etat.id === (id || null) && !etat.sub; };
+      charger().then(function () {
+        if (meme()) rendre();
+        if (vue === "partenaire" && id && messagesNonLus(id)) return A.api("messagesLusAdmin", { partenaire_id: id }).then(charger).then(function () { if (meme()) rendre(); });
+      }).catch(function () {});
+    }
+  }
 
   /* ====================================================================== CONNEXION */
   function vueConnexion(erreur) {
@@ -241,6 +257,8 @@
     if (vis) l.push({ t: vis + (vis > 1 ? " visites à confirmer" : " visite à confirmer"), i: "calendrier", v: "demandes", s: "visites" });
     var prop = D.propositions.filter(function (p) { return p.statut === "Nouveau"; }).length;
     if (prop) l.push({ t: prop + (prop > 1 ? " biens proposés à étudier" : " bien proposé à étudier"), i: "cle", v: "demandes", s: "propositions" });
+    var msgs = messagesNonLus();
+    if (msgs) l.push({ t: msgs + (msgs > 1 ? " messages de partenaires non lus" : " message de partenaire non lu"), i: "courrier", v: "partenaires" });
     var att = D.biens.filter(function (b) { return b.statut === "en_attente"; }).length;
     if (att) l.push({ t: att + (att > 1 ? " biens d’agents à valider" : " bien d’agent à valider"), i: "cle", v: "biens", s: "", filtreBien: "en_attente" });
     D.prospects.filter(function (p) { return p.date_relance && p.date_relance <= t && p.statut !== "Vente"; })
@@ -1062,7 +1080,7 @@
         champ("email_contact", "E-mail de contact affiché", p.email_contact, 'type="email"', "plein") + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
       '<section class="a-bloc"><h2>Sécurité des codes PIN</h2>' + (D.codes_visibles === false
         ? '<p class="a-aide">Les codes PIN ne sont plus conservés : ils ne s’affichent qu’une seule fois, à la création ou au changement de code.</p>'
-        : '<p class="a-aide">Pour le moment, le code PIN de chaque agent reste visible dans sa fiche, pour faciliter les envois. Quand vous serez prêt, « Sécuriser les codes » efface tous les codes visibles : ils ne s’afficheront plus qu’une seule fois. Les codes déjà donnés aux agents continuent de fonctionner.</p><button type="button" class="btn btn-ligne" data-action="securiser-codes">Sécuriser les codes</button>') + "</section>" +
+        : '<p class="a-aide">Pour le moment, le code PIN de chaque agent et de chaque partenaire reste visible dans sa fiche, pour faciliter les envois. Quand vous serez prêt, « Sécuriser les codes » efface tous les codes visibles : ils ne s’afficheront plus qu’une seule fois. Les codes déjà donnés continuent de fonctionner.</p><button type="button" class="btn btn-ligne" data-action="securiser-codes">Sécuriser les codes</button>') + "</section>" +
       '<section class="a-bloc"><h2>Motifs de refus (Espace Agent)</h2><p class="a-aide">Boutons proposés au staff pour refuser rapidement un bien soumis par un agent. Désactivez un motif pour le retirer sans perdre son historique.</p>' +
         (D.motifsRefus && D.motifsRefus.length ? D.motifsRefus.slice().sort(function (a, b) { return n(a.ordre) - n(b.ordre); }).map(function (m) {
           return '<div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte">' + e(m.libelle) + '</span><label class="a-select"><span class="sr">Actif</span><select data-action-change="statut-motif" data-id="' + e(m.id) + '"><option value="oui"' + (m.actif === "oui" ? " selected" : "") + '>Actif</option><option value="non"' + (m.actif !== "oui" ? " selected" : "") + ">Désactivé</option></select></label>" +
@@ -1074,17 +1092,136 @@
         : '<form id="form-mdp" class="a-bloc a-form" novalidate><h2>Mot de passe</h2><div class="a-grille">' + champ("ancien", "Mot de passe actuel", "", 'type="password" autocomplete="current-password"') + champ("nouveau", "Nouveau mot de passe (10 caractères minimum)", "", 'type="password" autocomplete="new-password"') + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Changer le mot de passe</button></div></form>');
   }
 
+  /* ====================================================================== V11 : PARTENAIRES (notaires, avocats, promoteurs) */
+  var LIB_TYPE_PART = { notaire: "Notaire", avocat: "Avocat", promoteur: "Promoteur" };
+  function partenaire(id) { return (D.partenaires || []).filter(function (p) { return p.id === id; })[0]; }
+  function messagesNonLus(pid) { return (D.messages || []).filter(function (m) { return m.auteur === "partenaire" && m.lu !== "oui" && (!pid || m.partenaire_id === pid); }).length; }
+  function plur(n, un, plusieurs) { return n + " " + (n > 1 ? plusieurs : un); }
+  function listeOptions(liste, choisi) { return liste.map(function (x) { return option(x, x, choisi); }).join(""); }
+  function optionsAgents(choisi) { return '<option value="">Aucun</option>' + D.agents.map(function (a) { return option(a.id, String(a.nom).replace(/^Exemple — /, ""), choisi); }).join(""); }
+  function nomAgent(id) { var a = id && agent(id); return a ? String(a.nom).replace(/^Exemple — /, "") : ""; }
+  function boutonIcone(action, attrs, icone, titre, danger) { return '<button type="button" class="a-icone' + (danger ? " a-icone-danger" : "") + '" data-action="' + action + '" ' + attrs + ' title="' + titre + '" aria-label="' + titre + '">' + ico(icone) + "</button>"; }
+
+  function vuePartenaires() {
+    var l = (D.partenaires || []).slice().sort(function (a, b) { return a.nom.localeCompare(b.nom); });
+    return l.length ? '<section class="a-bloc a-bloc-liste">' + l.map(function (p) {
+      var pro = p.type === "promoteur", nb = pro ? D.programmes.filter(function (x) { return x.partenaire_id === p.id; }).length : D.dossiers.filter(function (x) { return x.partenaire_id === p.id; }).length, nl = messagesNonLus(p.id);
+      return '<button class="a-ligne" data-action="aller" data-vue="partenaire" data-id="' + e(p.id) + '"><span class="a-pastille">' + e(nomAffiche(p).charAt(0).toUpperCase() || "?") + '</span><span class="a-ligne-texte"><strong>' + e(p.nom) + "</strong><small>" +
+        e([LIB_TYPE_PART[p.type], p.societe, p.email].filter(Boolean).join(" · ")) + " · " + (pro ? plur(nb, "programme", "programmes") : plur(nb, "dossier", "dossiers")) + "</small></span>" +
+        (nl ? '<em class="a-compteur" title="Messages non lus">' + nl + "</em>" : "") +
+        '<span class="a-statut ' + (p.actif === "oui" ? "a-statut-publie" : "a-statut-brouillon") + '">' + (p.actif === "oui" ? "Actif" : "Désactivé") + "</span></button>";
+    }).join("") + "</section>" : '<p class="a-vide a-bloc">Aucun partenaire pour le moment. Ajoutez un notaire, un avocat ou un promoteur : il recevra un code PIN pour se connecter à son espace.</p>';
+  }
+
+  function formDossier(p, id) {
+    var d = id ? D.dossiers.filter(function (x) { return x.id === id; })[0] : { etape: D.listes.etapesDossier[0], agent_id: "" };
+    if (!d) return "";
+    return '<form id="form-dossier" class="a-form a-sous-bloc" novalidate data-id="' + e(id || "") + '" data-partenaire="' + e(p.id) + '"><h3 class="a-sous-titre">' + (id ? "Modifier le dossier" : "Nouveau dossier") + '</h3><div class="a-grille">' +
+      champ("bien", "Bien concerné *", d.bien, 'required placeholder="ex. Villa, route de l’Ourika"', "plein") + champ("reference", "Référence (créée automatiquement si vide)", d.reference, "") +
+      '<div><label for="f-etape">Étape</label><select id="f-etape" name="etape">' + listeOptions(D.listes.etapesDossier, d.etape) + "</select></div>" +
+      '<div><label for="f-agent_id">Agent référent</label><select id="f-agent_id" name="agent_id">' + optionsAgents(d.agent_id) + "</select></div>" +
+      '<div class="plein"><label for="f-notes">Notes internes (jamais visibles du partenaire)</label><textarea id="f-notes" name="notes" rows="3">' + e(d.notes || "") + "</textarea></div></div>" +
+      '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="sub-fermer">Annuler</button><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>';
+  }
+  function blocDossiers(p) {
+    var l = D.dossiers.filter(function (x) { return x.partenaire_id === p.id; }), sub = etat.sub && etat.sub.t === "dossier" ? etat.sub : null;
+    return '<section class="a-bloc"><div class="a-entete-btns" style="justify-content:space-between;align-items:center;margin-bottom:12px"><h2 style="margin:0">Dossiers confiés (' + l.length + ')</h2><button type="button" class="btn btn-or" data-action="sub-ouvrir" data-t="dossier">' + ico("plus") + " Ajouter un dossier</button></div>" +
+      (l.length ? l.map(function (d) {
+        return '<div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte"><strong>' + e(d.bien) + "</strong><small>" + e(d.reference) + (nomAgent(d.agent_id) ? " · Agent : " + e(nomAgent(d.agent_id)) : "") + '</small></span>' +
+          '<label class="a-select"><span class="sr">Étape de ' + e(d.bien) + '</span><select data-action-change="dossier-etape" data-id="' + e(d.id) + '">' + listeOptions(D.listes.etapesDossier, d.etape) + "</select></label>" +
+          boutonIcone("sub-ouvrir", 'data-t="dossier" data-id="' + e(d.id) + '"', "crayon", "Modifier le dossier") + boutonIcone("supprimer-dossier", 'data-id="' + e(d.id) + '"', "corbeille", "Supprimer le dossier", true) + "</div>";
+      }).join("") : '<p class="a-vide">Aucun dossier confié à ce partenaire. Les dossiers apparaissent dans son espace dès que vous les ajoutez.</p>') +
+      (sub ? formDossier(p, sub.id) : "") + "</section>";
+  }
+
+  function formProgramme(p, id) {
+    var x = id ? D.programmes.filter(function (r) { return r.id === id; })[0] : { agent_id: "" };
+    if (!x) return "";
+    return '<form id="form-programme" class="a-form a-sous-bloc" novalidate data-id="' + e(id || "") + '" data-partenaire="' + e(p.id) + '"><h3 class="a-sous-titre">' + (id ? "Modifier le programme" : "Nouveau programme") + '</h3><div class="a-grille">' +
+      champ("nom_programme", "Nom du programme *", x.nom, "required", "plein") + '<div><label for="f-agent_id">Agent référent</label><select id="f-agent_id" name="agent_id">' + optionsAgents(x.agent_id) + "</select></div>" +
+      champ("lien_brochure", "Lien de la brochure (facultatif)", x.lien_brochure, 'type="url" placeholder="https://…"') + "</div>" +
+      '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="sub-fermer">Annuler</button><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>';
+  }
+  function formLot(prog, id) {
+    var x = id ? D.lots.filter(function (r) { return r.id === id; })[0] : { statut: "Disponible" };
+    if (!x) return "";
+    return '<form id="form-lot" class="a-form a-sous-bloc" novalidate data-id="' + e(id || "") + '" data-prog="' + e(prog) + '"><h3 class="a-sous-titre">' + (id ? "Modifier le lot" : "Nouveau lot") + '</h3><div class="a-grille">' +
+      champ("nom_lot", "Nom du lot *", x.nom, 'required placeholder="ex. Lot A1"') + champ("detail", "Description", x.detail, 'placeholder="ex. Appartement 2 chambres"') +
+      '<div><label for="f-statut-lot">Statut</label><select id="f-statut-lot" name="statut">' + listeOptions(D.listes.statutsLot, x.statut) + "</select></div></div>" +
+      '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="sub-fermer">Annuler</button><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>';
+  }
+  function formDemande(prog) {
+    return '<form id="form-demande" class="a-form a-sous-bloc" novalidate data-prog="' + e(prog) + '"><h3 class="a-sous-titre">Nouvelle demande de réservation</h3><div class="a-grille">' +
+      champ("lot_nom", "Lot concerné *", "", 'required placeholder="ex. Lot A1 · Appartement 2 chambres"', "plein") + champ("agent_nom", "Transmise par (agent)", "", "") +
+      '<div><label for="f-statut-demande">Statut</label><select id="f-statut-demande" name="statut">' + listeOptions(D.listes.statutsDemande, "À confirmer") + "</select></div></div>" +
+      '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="sub-fermer">Annuler</button><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>';
+  }
+  function blocProgrammes(p) {
+    var l = D.programmes.filter(function (x) { return x.partenaire_id === p.id; }), sub = etat.sub || {};
+    return '<section class="a-bloc"><div class="a-entete-btns" style="justify-content:space-between;align-items:center;margin-bottom:12px"><h2 style="margin:0">Programmes confiés (' + l.length + ')</h2><button type="button" class="btn btn-or" data-action="sub-ouvrir" data-t="programme">' + ico("plus") + " Ajouter un programme</button></div>" +
+      (sub.t === "programme" && !sub.id ? formProgramme(p, null) : "") +
+      (l.length ? l.map(function (g) {
+        var lots = D.lots.filter(function (x) { return x.programme_id === g.id; }), dem = D.demandes.filter(function (x) { return x.programme_id === g.id; });
+        return '<div class="a-sous-bloc"><div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte"><strong>' + e(g.nom) + "</strong><small>" + plur(lots.length, "lot", "lots") + (nomAgent(g.agent_id) ? " · Agent : " + e(nomAgent(g.agent_id)) : "") + "</small></span>" +
+          boutonIcone("sub-ouvrir", 'data-t="programme" data-id="' + e(g.id) + '"', "crayon", "Modifier le programme") + boutonIcone("supprimer-programme", 'data-id="' + e(g.id) + '"', "corbeille", "Supprimer le programme", true) + "</div>" +
+          (sub.t === "programme" && sub.id === g.id ? formProgramme(p, g.id) : "") +
+          '<h3 class="a-sous-titre">Lots</h3>' + (lots.length ? lots.map(function (x) {
+            return '<div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte"><strong>' + e(x.nom) + "</strong><small>" + e(x.detail) + '</small></span><label class="a-select"><span class="sr">Statut de ' + e(x.nom) + '</span><select data-action-change="lot-statut-admin" data-id="' + e(x.id) + '">' + listeOptions(D.listes.statutsLot, x.statut) + "</select></label>" +
+              boutonIcone("sub-ouvrir", 'data-t="lot" data-prog="' + e(g.id) + '" data-id="' + e(x.id) + '"', "crayon", "Modifier le lot") + boutonIcone("supprimer-lot", 'data-id="' + e(x.id) + '"', "corbeille", "Supprimer le lot", true) + "</div>";
+          }).join("") : '<p class="a-vide">Aucun lot.</p>') +
+          (sub.t === "lot" && sub.prog === g.id ? formLot(g.id, sub.id) : "") +
+          '<div><button type="button" class="btn btn-ligne" data-action="sub-ouvrir" data-t="lot" data-prog="' + e(g.id) + '">' + ico("plus") + " Ajouter un lot</button></div>" +
+          '<h3 class="a-sous-titre">Demandes de réservation</h3>' + (dem.length ? dem.map(function (x) {
+            return '<div class="a-ligne a-ligne-fixe"><span class="a-ligne-texte"><strong>' + e(x.lot_nom) + "</strong><small>" + (x.agent_nom ? "Transmise par " + e(x.agent_nom) + " · " : "") + e(A.dateFr(x.date)) + '</small></span><label class="a-select"><span class="sr">Statut de la demande</span><select data-action-change="demande-statut" data-id="' + e(x.id) + '">' + listeOptions(D.listes.statutsDemande, x.statut) + "</select></label>" +
+              boutonIcone("supprimer-demande", 'data-id="' + e(x.id) + '"', "corbeille", "Supprimer la demande", true) + "</div>";
+          }).join("") : '<p class="a-vide">Aucune demande.</p>') +
+          (sub.t === "demande" && sub.prog === g.id ? formDemande(g.id) : "") +
+          '<div><button type="button" class="btn btn-ligne" data-action="sub-ouvrir" data-t="demande" data-prog="' + e(g.id) + '">' + ico("plus") + " Ajouter une demande</button></div></div>";
+      }).join("") : '<p class="a-vide">Aucun programme confié à ce promoteur.</p>') + "</section>";
+  }
+
+  function blocMessagesAdmin(p) {
+    var l = (D.messages || []).filter(function (m) { return m.partenaire_id === p.id; }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    return '<section class="a-bloc"><h2>Messages</h2>' + (l.length
+      ? '<div class="a-fil-messages" tabindex="0" aria-label="Messages">' + l.map(function (m) { return '<div class="a-msg' + (m.auteur === "agence" ? " est-moi" : "") + '">' + e(m.texte) + "<small>" + (m.auteur === "agence" ? "Agence" : e(nomAffiche(p))) + " · " + e(A.dateFr(m.date, true)) + "</small></div>"; }).join("") + "</div>"
+      : '<p class="a-vide">Aucun message échangé.</p>') +
+      '<form id="form-message-admin" class="a-historique-ajout"><label class="sr" for="f-texte-msg">Message pour ' + e(p.nom) + '</label><textarea id="f-texte-msg" name="texte" rows="3" placeholder="Écrire à ' + e(nomAffiche(p)) + '…" required></textarea><button class="btn btn-vert" type="submit">Envoyer</button></form>' +
+      '<p class="a-aide">Le partenaire est prévenu par e-mail (sans le contenu du message) et le lit dans son espace.</p></section>';
+  }
+
+  function vuePartenaire() {
+    var nouveau = !etat.id, p = nouveau ? { actif: "oui", type: "notaire" } : partenaire(etat.id);
+    if (!p) return '<p class="a-vide a-bloc">Partenaire introuvable.</p>';
+    var form = '<form id="form-partenaire" class="a-bloc a-form" novalidate><h2>Coordonnées</h2><div class="a-grille">' +
+      champ("nom", "Nom *", p.nom, "required", "plein") + champ("societe", "Étude, cabinet ou société", p.societe, "") +
+      '<div><label for="f-type">Type de partenaire</label>' + (nouveau
+        ? '<select id="f-type" name="type">' + D.listes.typesPartenaire.map(function (t) { return option(t, LIB_TYPE_PART[t] || t, p.type); }).join("") + "</select>"
+        : '<input id="f-type" value="' + e(LIB_TYPE_PART[p.type] || p.type) + '" readonly>') + "</div>" +
+      champ("email", "E-mail (identifiant de connexion) *", p.email, 'type="email" required') + champ("telephone", "Téléphone", p.telephone, 'type="tel"') +
+      champ("whatsapp", "WhatsApp (avec l’indicatif pays si possible)", p.whatsapp, "") + "</div>" +
+      (nouveau ? '<p class="a-aide" style="margin:18px 0 14px">Un <strong>code PIN à 6 chiffres</strong> sera créé automatiquement. Vous pourrez l’envoyer tout de suite par WhatsApp ou par e-mail. Un notaire ou un avocat reçoit des <strong>dossiers</strong>, un promoteur des <strong>programmes</strong> : vous les ajouterez après la création.</p>' : "") +
+      '<div class="a-form-pied">' + (nouveau ? "" : '<button type="button" class="lien-discret est-danger" data-action="supprimer-partenaire" data-id="' + e(p.id) + '">Supprimer ce partenaire</button>') + '<button class="btn btn-vert" type="submit">Enregistrer</button></div></form>';
+    if (nouveau) return '<div class="a-deux a-deux-large">' + form + "</div>";
+    var droite = '<div><section class="a-bloc"><h2>Code PIN</h2>' + (p.pin_visible
+        ? '<p class="a-pin-valeur" aria-label="Code PIN">' + e(p.pin_visible) + '</p><div class="a-contacts">' + boutonsEnvoi(p, true, "partenaire") + "</div>"
+        : '<p class="a-aide">' + (D.codes_visibles === false ? "Pour votre sécurité, les codes ne sont plus conservés. Cliquez sur « Nouveau code PIN » : le code s’affiche une seule fois, prêt à envoyer." : "Aucun code enregistré pour ce partenaire. Cliquez sur « Nouveau code PIN » pour en créer un : il s’affichera ici, prêt à envoyer.") + "</p>") + "</section>" +
+      '<section class="a-bloc"><h2>Accès</h2><p class="a-aide">Statut : <span class="a-statut ' + (p.actif === "oui" ? "a-statut-publie" : "a-statut-brouillon") + '">' + (p.actif === "oui" ? "Actif" : "Désactivé") + "</span></p>" +
+      '<div class="a-contacts"><button type="button" class="btn btn-ligne" data-action="partenaire-actif" data-id="' + e(p.id) + '">' + (p.actif === "oui" ? "Désactiver l’accès" : "Réactiver l’accès") + '</button><button type="button" class="btn btn-vert" data-action="nouveau-code-partenaire" data-id="' + e(p.id) + '">Nouveau code PIN</button></div>' +
+      '<p class="a-aide">« Nouveau code PIN » crée un nouveau code (l’ancien ne fonctionne plus)' + (D.codes_visibles === false ? " et le montre une seule fois." : " et l’affiche ici.") + "</p></section></div>";
+    return '<div class="a-deux a-deux-large">' + form + droite + "</div>" + (p.type === "promoteur" ? blocProgrammes(p) : blocDossiers(p)) + blocMessagesAdmin(p);
+  }
+
   /* ====================================================================== GABARIT */
-  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["prospects", "Prospects", "personnes"], ["samsars", "Samsar", "cle"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
+  var MENU = [["tableau", "Tableau<i> de bord</i>", "tableau"], ["biens", "Biens", "maison"], ["agents", "Agents", "personnes"], ["partenaires", "Partenaires", "mains"], ["prospects", "Prospects", "personnes"], ["samsars", "Samsar", "cle"], ["demandes", "Demandes", "cloche"], ["parametres", "Paramètres", "reglages"]];
   function rendre() {
     if (!D) { racine.innerHTML = vueConnexion(); return; }
-    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
-    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", import: "Importer une annonce IA", samsarimport: "Importer des contacts", samsars: "Samsar", samsar: etat.id ? (samsar(etat.id) || {}).nom || "Samsar" : "Ajouter un samsar", demandes: "Demandes", parametres: "Paramètres" };
-    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres, samsars: vueSamsars, samsar: vueSamsar, import: vueImport, samsarimport: vueSamsarImport }[v]();
-    var action = v === "biens" || v === "tableau" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="imp-ouvrir">' + ico("plus") + ' Importer une annonce IA</button><button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button></div>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : v === "samsars" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="simp-ouvrir">' + ico("plus") + ' Importer des contacts</button><button class="btn btn-or" data-action="aller" data-vue="samsar">' + ico("plus") + " Ajouter un samsar</button></div>" : "";
-    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : "";
+    var v = etat.vue, section = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "partenaire" ? "partenaires" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : v, nonLues = D.alertes.filter(function (a) { return a.lu !== "oui"; }).length;
+    var titres = { tableau: "Tableau de bord", biens: "Biens", bien: etat.id ? "Modifier le bien" : "Ajouter un bien", agents: "Agents", agent: etat.id ? (agent(etat.id) || {}).nom || "Agent" : "Ajouter un agent", partenaires: "Partenaires", partenaire: etat.id ? (partenaire(etat.id) || {}).nom || "Partenaire" : "Ajouter un partenaire", prospects: "Prospects", prospect: etat.id ? (prospect(etat.id) || {}).nom || "Prospect" : "Ajouter un prospect", import: "Importer une annonce IA", samsarimport: "Importer des contacts", samsars: "Samsar", samsar: etat.id ? (samsar(etat.id) || {}).nom || "Samsar" : "Ajouter un samsar", demandes: "Demandes", parametres: "Paramètres" };
+    var corps = { tableau: vueTableau, biens: vueBiens, bien: vueBien, agents: vueAgents, agent: vueAgent, partenaires: vuePartenaires, partenaire: vuePartenaire, prospects: vueProspects, prospect: vueProspect, demandes: vueDemandes, parametres: vueParametres, samsars: vueSamsars, samsar: vueSamsar, import: vueImport, samsarimport: vueSamsarImport }[v]();
+    var action = v === "biens" || v === "tableau" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="imp-ouvrir">' + ico("plus") + ' Importer une annonce IA</button><button class="btn btn-or" data-action="aller" data-vue="bien">' + ico("plus") + " Ajouter un bien</button></div>" : v === "prospects" ? '<button class="btn btn-or" data-action="aller" data-vue="prospect">' + ico("plus") + " Ajouter un prospect</button>" : v === "agents" ? '<button class="btn btn-or" data-action="aller" data-vue="agent">' + ico("plus") + " Ajouter un agent</button>" : v === "partenaires" ? '<button class="btn btn-or" data-action="aller" data-vue="partenaire">' + ico("plus") + " Ajouter un partenaire</button>" : v === "samsars" ? '<div class="a-entete-btns"><button class="btn btn-ligne" data-action="simp-ouvrir">' + ico("plus") + ' Importer des contacts</button><button class="btn btn-or" data-action="aller" data-vue="samsar">' + ico("plus") + " Ajouter un samsar</button></div>" : "";
+    var retour = v === "bien" ? "biens" : v === "prospect" ? "prospects" : v === "agent" ? "agents" : v === "partenaire" ? "partenaires" : v === "samsar" ? "samsars" : v === "import" ? "biens" : v === "samsarimport" ? "samsars" : "";
     racine.innerHTML = '<div class="a-app"><aside class="a-menu"><a class="a-menu-logo" href="index.html" title="Voir le site"><img src="assets/img/logo/logo-nassiri-440.png" width="440" height="302" alt="Nassiri Real Estate"></a><nav aria-label="Espace Pro">' +
-      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + "</button>"; }).join("") +
+      MENU.map(function (m) { return '<button class="' + (section === m[0] ? "est-actif" : "") + '" data-action="aller" data-vue="' + m[0] + '"' + (section === m[0] ? ' aria-current="page"' : "") + ">" + ico(m[2]) + "<span>" + m[1] + "</span>" + (m[0] === "demandes" && nonLues ? '<em class="a-compteur">' + nonLues + "</em>" : "") + (m[0] === "partenaires" && messagesNonLus() ? '<em class="a-compteur">' + messagesNonLus() + "</em>" : "") + "</button>"; }).join("") +
       '</nav><div class="a-menu-bas"><a href="index.html" target="_blank" rel="noopener">' + ico("oeil") + '<span>Voir le site</span></a><button data-action="deconnexion">' + ico("sortie") + "<span>Déconnexion</span></button></div></aside>" +
       '<main class="a-principal">' + (A.demo ? '<p class="a-bandeau-demo">' + ico("info") + " Mode démonstration — données fictives enregistrées sur cet appareil, accès non protégé.</p>" : "") +
       '<header class="a-entete"><div>' + (retour ? '<button class="a-fil-retour" data-action="aller" data-vue="' + retour + '">' + ico("gauche") + " " + titres[retour] + "</button>" : "") + "<h1>" + e(titres[v]) + "</h1></div>" + action + "</header>" + corps + "</main></div>" +
@@ -1147,8 +1284,42 @@
       var ag = agent(b.dataset.id); if (!ag || !ag.pin_visible) return;
       gererEnvoi(b.dataset.envoi, ag, messageAgent(ag, ag.pin_visible, false), false);
     },
+    "envoi-partenaire": function (b) {
+      var p = partenaire(b.dataset.id); if (!p || !p.pin_visible) return;
+      gererEnvoi(b.dataset.envoi, p, messageAcces(p, p.pin_visible, false, "partenaire"), false, "partenaire");
+    },
+    "partenaire-actif": function (b) {
+      var p = partenaire(b.dataset.id), actif = p.actif === "oui";
+      faire("partenaireEnregistrer", { partenaire: { id: p.id, actif: actif ? "non" : "oui" } }, actif ? "Accès désactivé : " + p.nom + " ne peut plus se connecter." : "Accès réactivé.").then(rendre);
+    },
+    "nouveau-code-partenaire": function (b) {
+      var p = partenaire(b.dataset.id);
+      confirmer("Créer un nouveau code PIN ?", "L’ancien code de " + p.nom + " ne fonctionnera plus. " + (D.codes_visibles === false ? "Le nouveau code s’affichera une seule fois, prêt à envoyer." : "Le nouveau code s’affichera dans la fiche et dans une fenêtre, prêt à envoyer."), "Créer le nouveau code")
+        .then(function (ok) { if (ok) faire("partenaireNouveauCode", { id: p.id }).then(function (r) { if (!r.pin) return alerteScriptAncien(false, "aucun code renvoyé"); return boiteCodeAgent(r.partenaire, r.pin, true, "partenaire"); }).then(rendre).catch(function (err) { if (RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(false, String(err.message).slice(0, 160)); }); });
+    },
+    "supprimer-partenaire": function (b) {
+      confirmer("Supprimer ce partenaire ?", "Son accès et ses messages seront supprimés définitivement. Supprimez d’abord ses dossiers ou ses programmes.", "Supprimer définitivement")
+        .then(function (ok) { if (ok) faire("partenaireSupprimer", { id: b.dataset.id }, "Partenaire supprimé.").then(function () { aller("partenaires"); }).catch(function () {}); });
+    },
+    "sub-ouvrir": function (b) {
+      etat.sub = { t: b.dataset.t, id: b.dataset.id || null, prog: b.dataset.prog || null }; rendre();
+      var f = racine.querySelector("form.a-sous-bloc"); if (f) { f.scrollIntoView({ block: "center" }); var c = f.querySelector("input,select,textarea"); if (c) c.focus(); }
+    },
+    "sub-fermer": function () { etat.sub = null; rendre(); },
+    "supprimer-dossier": function (b) {
+      confirmer("Supprimer ce dossier ?", "Il disparaîtra aussi de l’espace du partenaire.", "Supprimer définitivement").then(function (ok) { if (ok) faire("dossierSupprimer", { id: b.dataset.id }, "Dossier supprimé.").then(rendre).catch(function () {}); });
+    },
+    "supprimer-programme": function (b) {
+      confirmer("Supprimer ce programme ?", "Ses lots et ses demandes de réservation seront supprimés aussi.", "Supprimer définitivement").then(function (ok) { if (ok) faire("programmeSupprimer", { id: b.dataset.id }, "Programme supprimé.").then(rendre).catch(function () {}); });
+    },
+    "supprimer-lot": function (b) {
+      confirmer("Supprimer ce lot ?", "Il disparaîtra aussi de l’espace du promoteur.", "Supprimer définitivement").then(function (ok) { if (ok) faire("lotSupprimer", { id: b.dataset.id }, "Lot supprimé.").then(rendre).catch(function () {}); });
+    },
+    "supprimer-demande": function (b) {
+      confirmer("Supprimer cette demande ?", "Elle disparaîtra aussi de l’espace du promoteur.", "Supprimer définitivement").then(function (ok) { if (ok) faire("demandeSupprimer", { id: b.dataset.id }, "Demande supprimée.").then(rendre).catch(function () {}); });
+    },
     "securiser-codes": function () {
-      confirmer("Sécuriser les codes PIN ?", "Tous les codes visibles seront effacés et ne seront plus conservés. Les agents gardent leur code actuel et peuvent se connecter. Pour renvoyer un code, il faudra en créer un nouveau (il s’affichera une seule fois). Cette action est définitive.", "Sécuriser les codes")
+      confirmer("Sécuriser les codes PIN ?", "Tous les codes visibles (agents et partenaires) seront effacés et ne seront plus conservés. Chacun garde son code actuel et peut se connecter. Pour renvoyer un code, il faudra en créer un nouveau (il s’affichera une seule fois). Cette action est définitive.", "Sécuriser les codes")
         .then(function (ok) { if (ok) faire("codesSecuriser", {}, "Codes sécurisés.").then(rendre).catch(function () {}); });
     },
     "agent-actif": function (b) {
@@ -1181,7 +1352,7 @@
       faire("historiqueAjouter", { prospect_id: p.id, type: "WhatsApp", note: "Bien proposé : " + x.id + " " + x.titre }, "Proposition ajoutée à l’historique de " + nomAffiche(p) + ".").then(rendre);
     },
     "sous-vue": function (b) { etat.sousVue = b.dataset.v; rendre(); },
-    deconnexion: function () { A.api("deconnexion").catch(function () {}).then(function () { A.jeton.ecrire(""); D = null; etat.vue = "tableau"; rendre(); }); },
+    deconnexion: function () { A.api("deconnexion").catch(function () {}).then(function () { A.jeton.ecrire(""); D = null; etat.vue = "tableau"; window.location.href = "espace-pro.html?role=admin"; }); },
     "valider-bien": function (b) {
       var x = bien(b.dataset.id);
       confirmer("Valider ce bien ?", "« " + x.titre + " » sera publié sur le site public." + (!n(x.prix) ? " Attention : aucun prix n’est renseigné." : ""), "Valider et publier")
@@ -1240,6 +1411,9 @@
     "modele-wa-samsar": function (s) { var m = MODELES_SAMSAR.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(samsar(etat.id)); },
     "statut-visite": function (s) { faire("visiteStatut", { id: s.dataset.id, statut: s.value }, "Visite : " + s.value + ".").then(rendre, rendre); },
     "statut-proposition": function (s) { faire("propositionStatut", { id: s.dataset.id, statut: s.value }, "Statut mis à jour.").then(rendre, rendre); },
+    "dossier-etape": function (s) { faire("dossierEnregistrer", { dossier: { id: s.dataset.id, etape: s.value } }, "Étape mise à jour : " + s.value + ".").then(rendre, rendre); },
+    "lot-statut-admin": function (s) { faire("lotEnregistrer", { lot: { id: s.dataset.id, statut: s.value } }, "Lot : " + s.value + ".").then(rendre, rendre); },
+    "demande-statut": function (s) { faire("demandeEnregistrer", { demande: { id: s.dataset.id, statut: s.value } }, "Demande : " + s.value + ".").then(rendre, rendre); },
     "statut-motif": function (s) { faire("motifEnregistrer", { motif: { id: s.dataset.id, actif: s.value } }, "Motif mis à jour.").then(rendre, rendre); }
   };
 
@@ -1294,6 +1468,37 @@
           else if (creation && !v.motDePasse) { alerteScriptAncien(true, "aucun code renvoyé").then(function () { aller("agents"); }); }
           else aller("agents");
         }).catch(function (err) { if (creation && RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(false, String(err.message).slice(0, 160)); });
+      } else if (f.id === "form-partenaire") {
+        if (!v.nom || !v.email) { A.message("Indiquez un nom et un e-mail."); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v.email).trim())) { A.message("L’e-mail n’est pas valide (exemple : prenom@exemple.com)."); return; }
+        if (etat.id) v.id = etat.id;
+        var creationP = !etat.id;
+        faire("partenaireEnregistrer", { partenaire: v }, etat.id ? "Partenaire mis à jour." : "").then(function (r) {
+          if (r.pin) { A.message("Partenaire créé."); boiteCodeAgent(r.partenaire, r.pin, false, "partenaire").then(function () { aller("partenaire", r.partenaire.id); }); }
+          else if (creationP) { alerteScriptAncien(true, "aucun code renvoyé").then(function () { aller("partenaires"); }); }
+          else rendre();
+        }).catch(function (err) { if (creationP && RE_SCRIPT_ANCIEN.test(String(err && err.message))) alerteScriptAncien(false, String(err.message).slice(0, 160)); });
+      } else if (f.id === "form-dossier") {
+        if (!v.bien) { A.message("Indiquez le bien concerné."); return; }
+        var dossier = { reference: v.reference, bien: v.bien, etape: v.etape, agent_id: v.agent_id, notes: v.notes, partenaire_id: f.dataset.partenaire };
+        if (f.dataset.id) dossier.id = f.dataset.id;
+        faire("dossierEnregistrer", { dossier: dossier }, "Dossier enregistré.").then(function () { etat.sub = null; rendre(); }).catch(function () {});
+      } else if (f.id === "form-programme") {
+        if (!v.nom_programme) { A.message("Indiquez le nom du programme."); return; }
+        var programme = { nom: v.nom_programme, agent_id: v.agent_id, lien_brochure: v.lien_brochure, partenaire_id: f.dataset.partenaire };
+        if (f.dataset.id) programme.id = f.dataset.id;
+        faire("programmeEnregistrer", { programme: programme }, "Programme enregistré.").then(function () { etat.sub = null; rendre(); }).catch(function () {});
+      } else if (f.id === "form-lot") {
+        if (!v.nom_lot) { A.message("Indiquez le nom du lot."); return; }
+        var lot = { nom: v.nom_lot, detail: v.detail, statut: v.statut, programme_id: f.dataset.prog };
+        if (f.dataset.id) lot.id = f.dataset.id;
+        faire("lotEnregistrer", { lot: lot }, "Lot enregistré.").then(function () { etat.sub = null; rendre(); }).catch(function () {});
+      } else if (f.id === "form-demande") {
+        if (!v.lot_nom) { A.message("Indiquez le lot concerné."); return; }
+        faire("demandeEnregistrer", { demande: { lot_nom: v.lot_nom, agent_nom: v.agent_nom, statut: v.statut, programme_id: f.dataset.prog } }, "Demande enregistrée.").then(function () { etat.sub = null; rendre(); }).catch(function () {});
+      } else if (f.id === "form-message-admin") {
+        if (!String(v.texte || "").trim()) { A.message("Écrivez votre message."); return; }
+        faire("messageEnvoyerAdmin", { partenaire_id: etat.id, texte: v.texte }, "Message envoyé.").then(rendre).catch(function () {});
       } else if (f.id === "form-samsar") {
         if (!v.nom) { A.message("Indiquez un nom."); return; }
         if (etat.id) v.id = etat.id;
@@ -1304,7 +1509,7 @@
       }
     });
     /* Session existante : on tente de reprendre directement */
-    if (A.jeton.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jeton.ecrire(""); D = null; rendre(); }); }
-    else rendre();
+    if (A.jeton.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jeton.ecrire(""); D = null; window.location.replace("espace-pro.html?role=admin"); }); }
+    else window.location.replace("espace-pro.html?role=admin");
   });
 })();

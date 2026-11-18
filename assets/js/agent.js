@@ -189,7 +189,7 @@
   var ACTIONS = {
     aller: function (b) { aller(b.dataset.vue, b.dataset.id); },
     "filtre-bien": function (b) { etat.filtreBien = b.dataset.v; rendre(); },
-    deconnexion: function () { A.apiAgent("deconnexionAgent").catch(function () {}).then(function () { A.jetonAgent.ecrire(""); D = null; etat.vue = "biens"; rendre(); }); },
+    deconnexion: function () { A.apiAgent("deconnexionAgent").catch(function () {}).then(function () { A.jetonAgent.ecrire(""); D = null; etat.vue = "biens"; window.location.href = "espace-pro.html?role=agent"; }); },
     "supprimer-bien": function (b) {
       var x = bien(b.dataset.id);
       confirmer("Supprimer ce bien ?", "« " + x.titre + " » et ses photos seront supprimés définitivement.", "Supprimer définitivement")
@@ -229,7 +229,7 @@
       }
     });
     /* Session existante : on tente de reprendre directement */
-    if (A.jetonAgent.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jetonAgent.ecrire(""); D = null; rendre(); }); }
-    else rendre();
+    if (A.jetonAgent.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jetonAgent.ecrire(""); D = null; window.location.replace("espace-pro.html?role=agent"); }); }
+    else window.location.replace("espace-pro.html?role=agent");
   });
 })();

@@ -30,6 +30,13 @@
     ecrire: function (j) { A.jetonAgent._m = j; try { j ? sessionStorage.setItem(CLE_JETON_AGENT, j) : sessionStorage.removeItem(CLE_JETON_AGENT); } catch (e) {} }
   };
 
+  /* Session distincte pour l'Espace Partenaire (notaires, avocats, promoteurs). */
+  var CLE_JETON_PARTENAIRE = "nassiri_jeton_partenaire";
+  A.jetonPartenaire = {
+    lire: function () { try { return sessionStorage.getItem(CLE_JETON_PARTENAIRE) || ""; } catch (e) { return A.jetonPartenaire._m || ""; } },
+    ecrire: function (j) { A.jetonPartenaire._m = j; try { j ? sessionStorage.setItem(CLE_JETON_PARTENAIRE, j) : sessionStorage.removeItem(CLE_JETON_PARTENAIRE); } catch (e) {} }
+  };
+
   /* Appelle une action du serveur. Rejette avec une erreur lisible (err.code = AUTH, LIMITE…). */
   A.api = function (action, donnees) {
     var corps = Object.assign({ action: action, jeton: A.jeton.lire() }, donnees || {});
@@ -50,6 +57,22 @@
   /* Identique à A.api, mais pour l'Espace Agent (jeton et session séparés de l'admin). */
   A.apiAgent = function (action, donnees) {
     var corps = Object.assign({ action: action, jeton: A.jetonAgent.lire() }, donnees || {});
+    var p = A.demo
+      ? chargerDemo().then(function () { return JSON.parse(ATLAS_DEMO.serveur.doPost({ postData: { contents: JSON.stringify(corps) } }).getContent()); })
+      : fetch(A.config.apiUrl, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(corps) })
+          .then(function (r) { if (!r.ok) throw new Error("Le serveur ne répond pas (" + r.status + ")."); return r.json(); });
+    return p.then(function (r) {
+      if (r && r.ok) return r;
+      var e = new Error((r && r.erreur) || "Erreur inconnue."); e.code = r && r.code; e.detail = r && r.detail; throw e;
+    }, function (err) {
+      if (err.code) throw err;
+      var e = new Error(navigator.onLine === false ? "Vous êtes hors connexion." : "Connexion au serveur impossible. Réessayez."); e.code = "RESEAU"; e.detail = String(err.message || err); throw e;
+    });
+  };
+
+  /* Identique à A.api, mais pour l'Espace Partenaire (jeton et session séparés de l'admin et des agents). */
+  A.apiPartenaire = function (action, donnees) {
+    var corps = Object.assign({ action: action, jeton: A.jetonPartenaire.lire() }, donnees || {});
     var p = A.demo
       ? chargerDemo().then(function () { return JSON.parse(ATLAS_DEMO.serveur.doPost({ postData: { contents: JSON.stringify(corps) } }).getContent()); })
       : fetch(A.config.apiUrl, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(corps) })

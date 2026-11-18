@@ -13,7 +13,7 @@
 
 var VERSION = '2.0';
 var COLONNE_PIN_OK = false;          // vérification de la colonne pin_visible faite une seule fois par exécution
-var BUILD = 'V10 - codes PIN visibles';   // visible en ouvrant l'adresse du script dans un navigateur
+var BUILD = 'V11 - espace partenaires';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -38,8 +38,22 @@ var ONGLETS = {
   PARAMETRES: ['cle', 'valeur'],
   AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation', 'pin_visible'],
   SAMSAR: ['id', 'date_creation', 'nom', 'telephone', 'zone', 'specialite', 'source', 'statut', 'commission', 'notes', 'date_relance', 'dernier_contact', 'date_maj'],
-  MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre']
+  MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre'],
+  /* V11 : espace partenaires (notaires, avocats, promoteurs) */
+  PARTENAIRES: ['id', 'nom', 'societe', 'type', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation', 'pin_visible'],
+  DOSSIERS: ['id', 'reference', 'bien', 'etape', 'partenaire_id', 'agent_id', 'notes', 'date_creation', 'date_maj'],
+  PROGRAMMES: ['id', 'nom', 'partenaire_id', 'agent_id', 'lien_brochure', 'date_creation'],
+  LOTS: ['id', 'programme_id', 'nom', 'detail', 'statut', 'date_maj'],
+  DEMANDES: ['id', 'programme_id', 'lot_nom', 'agent_nom', 'statut', 'date'],
+  MESSAGES: ['id', 'partenaire_id', 'auteur', 'texte', 'date', 'lu']
 };
+/* Onglets ajoutés après l'installation initiale : créés automatiquement au premier usage (jamais de perte de données). */
+var ONGLETS_AJOUTES = ['SAMSAR', 'PARTENAIRES', 'DOSSIERS', 'PROGRAMMES', 'LOTS', 'MESSAGES', 'DEMANDES'];
+var TYPES_PARTENAIRE = ['notaire', 'avocat', 'promoteur'];
+var ETAPES_DOSSIER = ['Promesse de vente', 'Compromis signé', 'Acte à signer', 'Titre foncier obtenu'];
+var STATUTS_LOT = ['Disponible', 'Réservé', 'Vendu'];
+var STATUTS_DEMANDE = ['À confirmer', 'Confirmée', 'Refusée'];
+var MAX_MESSAGES_HEURE = 30;        // limite de messages par partenaire et par heure
 /* en_attente : soumis par un agent, attend la validation du staff. refuse : renvoyé à l'agent avec motif. */
 var STATUTS_BIEN = ['brouillon', 'en_attente', 'publie', 'sous-offre', 'vendu', 'archive', 'refuse'];
 /* Statuts qu'un agent peut choisir lui-même : jamais publié directement sans validation du staff. */
@@ -119,6 +133,7 @@ function doPost(e) {
     if (PUBLIQUES[action]) return PUBLIQUES[action](d);
     if (ADMIN[action]) { exigerSession_(d.jeton); return verrou_(function () { return ADMIN[action](d); }); }
     if (AGENT[action]) { var agentId = exigerSessionAgent_(d.jeton); return verrou_(function () { return AGENT[action](d, agentId); }); }
+    if (PARTENAIRE[action]) { var partenaireId = exigerSessionPartenaire_(d.jeton); return verrou_(function () { return PARTENAIRE[action](d, partenaireId); }); }
     throw erreur_('Action inconnue.', 'ACTION');
   }));
 }
@@ -138,7 +153,7 @@ function verrou_(fn) {
 
 function feuille_(nom) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), f = ss.getSheetByName(nom);
-  if (!f && ONGLETS[nom] && nom === 'SAMSAR') {      // onglet ajouté après l'installation initiale : création automatique
+  if (!f && ONGLETS[nom] && ONGLETS_AJOUTES.indexOf(nom) !== -1) {      // onglet ajouté après l'installation initiale : création automatique
     var cols = ONGLETS[nom];
     f = ss.insertSheet(nom);
     f.getRange(1, 1, f.getMaxRows(), cols.length).setNumberFormat('@');
@@ -283,6 +298,44 @@ function exigerSessionAgent_(jeton) {
   return agentId;
 }
 
+/* ============================== AUTHENTIFICATION DES PARTENAIRES ============================== */
+
+function trouverPartenaireParEmail_(email) {
+  email = String(email || '').toLowerCase();
+  var l = lire_('PARTENAIRES');
+  for (var i = 0; i < l.length; i++) if (l[i].email.toLowerCase() === email) return l[i];
+  return null;
+}
+function connexionPartenaire_(d) {
+  var cache = CacheService.getScriptCache(), cleEchecs = 'echecs_partenaire_' + String(d.email || '').toLowerCase().slice(0, 120);
+  var echecs = parseInt(cache.get(cleEchecs) || '0', 10);
+  if (echecs >= MAX_ECHECS) throw erreur_('Trop de tentatives. Réessayez dans 15 minutes.', 'BLOQUE');
+  var p = trouverPartenaireParEmail_(d.email);
+  if (!p || p.actif !== 'oui' || !p.sel || !p.hachage || hacher_(String(d.motDePasse || ''), p.sel) !== p.hachage) {
+    cache.put(cleEchecs, String(echecs + 1), BLOCAGE);
+    throw erreur_('E-mail ou code PIN incorrect.', 'AUTH');
+  }
+  cache.remove(cleEchecs);
+  var jeton = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  cache.put('session_partenaire_' + jeton, p.id, DUREE_SESSION);
+  return { jeton: jeton, duree: DUREE_SESSION, partenaire: { id: p.id, nom: p.nom, type: p.type } };
+}
+function exigerSessionPartenaire_(jeton) {
+  var cache = CacheService.getScriptCache(), cle = 'session_partenaire_' + String(jeton || '');
+  var id = jeton && String(jeton).length >= 40 ? cache.get(cle) : null;
+  if (!id) throw erreur_('Session expirée. Reconnectez-vous.', 'AUTH');
+  cache.put(cle, id, DUREE_SESSION);
+  var p = trouver_('PARTENAIRES', id);
+  if (!p || p.actif !== 'oui') throw erreur_('Accès désactivé. Contactez l’agence.', 'AUTH');
+  return id;
+}
+/* Fiche partenaire sans sel ni empreinte du code ; le code visible n'est renvoyé que si l'administrateur ne l'a pas « sécurisé ». */
+function partenairePublic_(p) {
+  var c = sansClefs_(p, ['sel', 'hachage']);
+  c.pin_visible = codesVisibles_() ? (p.pin_visible || '') : '';
+  return c;
+}
+
 /* ============================== PARTIE PUBLIQUE ============================== */
 
 function photosPar_() {
@@ -377,6 +430,7 @@ var PUBLIQUES = {
   catalogue: function () { return catalogue_(); },
   connexion: function (d) { return connexion_(d); },
   connexionAgent: function (d) { return connexionAgent_(d); },
+  connexionPartenaire: function (d) { return connexionPartenaire_(d); },
   contact: function (d) { return demande_('contact', d); },
   visite: function (d) { return demande_('visite', d); },
   confier: function (d) { return demande_('confier', d); },
@@ -458,7 +512,10 @@ var ADMIN = {
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
       agents: agents, codes_visibles: codesVisibles_(), samsar: tous_('SAMSAR'), motifsRefus: tous_('MOTIFS_REFUS'),
-      listes: { statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsSamsar: STATUTS_SAMSAR, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
+      partenaires: lire_('PARTENAIRES').map(partenairePublic_).map(sans_), dossiers: tous_('DOSSIERS'), programmes: tous_('PROGRAMMES'),
+      lots: tous_('LOTS'), demandes: tous_('DEMANDES'), messages: tous_('MESSAGES'),
+      listes: { typesPartenaire: TYPES_PARTENAIRE, etapesDossier: ETAPES_DOSSIER, statutsLot: STATUTS_LOT, statutsDemande: STATUTS_DEMANDE,
+        statutsBien: STATUTS_BIEN, transactionsBien: TRANSACTIONS_BIEN, statutsProspect: STATUTS_PROSPECT, statutsSamsar: STATUTS_SAMSAR, statutsVisite: STATUTS_VISITE, statutsProposition: STATUTS_PROPOSITION, statutsCommission: STATUTS_COMMISSION } };
   },
 
   bienEnregistrer: function (d) {
@@ -593,6 +650,8 @@ var ADMIN = {
   codesSecuriser: function () {
     var f = feuille_('AGENTS'), col = ONGLETS.AGENTS.indexOf('pin_visible') + 1, n = f.getLastRow() - 1;
     if (n > 0) f.getRange(2, col, n, 1).clearContent();
+    var fp = feuille_('PARTENAIRES'), colP = ONGLETS.PARTENAIRES.indexOf('pin_visible') + 1, np = fp.getLastRow() - 1;
+    if (np > 0) fp.getRange(2, colP, np, 1).clearContent();
     PropertiesService.getScriptProperties().setProperty('CODES_VISIBLES', 'non');
     return { codes_visibles: false };
   },
@@ -635,6 +694,130 @@ var ADMIN = {
   agentSupprimer: function (d) {
     if (lire_('BIENS').some(function (b) { return b.agent_id === d.id; })) throw erreur_('Cet agent a des biens rattachés : réattribuez-les avant de le supprimer.');
     supprimer_('AGENTS', d.id);
+    return {};
+  },
+
+  /* ---- V11 : partenaires (notaires, avocats, promoteurs) ---- */
+  partenaireEnregistrer: function (d) {
+    var s = d.partenaire || {}, p = {};
+    ['nom', 'societe', 'email', 'telephone', 'whatsapp'].forEach(function (k) { if (s[k] !== undefined) p[k] = propre_(s[k], 200); });
+    if (s.actif !== undefined) p.actif = oui_(s.actif);
+    if (p.email !== undefined && p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) throw erreur_('Adresse e-mail invalide.');
+    if (s.id) {
+      var avant = trouver_('PARTENAIRES', s.id);
+      if (!avant) throw erreur_('Partenaire introuvable.', 'INTROUVABLE');
+      if (p.email && p.email.toLowerCase() !== avant.email.toLowerCase() && trouverPartenaireParEmail_(p.email)) throw erreur_('Un partenaire utilise déjà cet e-mail.');
+      return { partenaire: sans_(partenairePublic_(modifier_('PARTENAIRES', s.id, p))) };
+    }
+    if (!p.nom) throw erreur_('Indiquez un nom.');
+    if (!p.email) throw erreur_('Indiquez un e-mail.');
+    if (TYPES_PARTENAIRE.indexOf(s.type) === -1) throw erreur_('Choisissez le type de partenaire.');
+    if (trouverPartenaireParEmail_(p.email)) throw erreur_('Un partenaire utilise déjà cet e-mail.');
+    /* Nouveau partenaire : code PIN à 6 chiffres généré automatiquement (comme pour les agents). */
+    var pin = genererPin_();
+    p.id = identifiant_('PT'); p.type = s.type; p.actif = p.actif || 'oui'; p.date_creation = maintenant_();
+    p.sel = Utilities.getUuid(); p.hachage = hacher_(pin, p.sel); p.pin_visible = codesVisibles_() ? pin : '';
+    return { partenaire: sans_(partenairePublic_(ajouter_('PARTENAIRES', p))), pin: pin };
+  },
+  partenaireNouveauCode: function (d) {
+    var p = trouver_('PARTENAIRES', d.id);
+    if (!p) throw erreur_('Partenaire introuvable.', 'INTROUVABLE');
+    var pin = genererPin_(), sel = Utilities.getUuid();
+    modifier_('PARTENAIRES', p.id, { sel: sel, hachage: hacher_(pin, sel), pin_visible: codesVisibles_() ? pin : '' });
+    CacheService.getScriptCache().remove('echecs_partenaire_' + String(p.email || '').toLowerCase().slice(0, 120));
+    return { partenaire: sans_(partenairePublic_(trouver_('PARTENAIRES', p.id))), pin: pin };
+  },
+  partenaireSupprimer: function (d) {
+    if (lire_('DOSSIERS').some(function (x) { return x.partenaire_id === d.id; }) || lire_('PROGRAMMES').some(function (x) { return x.partenaire_id === d.id; }))
+      throw erreur_('Ce partenaire a des dossiers ou des programmes : supprimez-les ou réattribuez-les avant de le supprimer.');
+    lire_('MESSAGES').filter(function (m) { return m.partenaire_id === d.id; }).sort(function (a, b) { return b._ligne - a._ligne; })
+      .forEach(function (m) { feuille_('MESSAGES').deleteRow(m._ligne); });
+    supprimer_('PARTENAIRES', d.id);
+    return {};
+  },
+  dossierEnregistrer: function (d) {
+    var s = d.dossier || {}, x = {};
+    ['reference', 'bien'].forEach(function (k) { if (s[k] !== undefined) x[k] = propre_(s[k], 200); });
+    if (s.notes !== undefined) x.notes = propre_(s.notes, 6000);
+    if (s.etape !== undefined) { if (ETAPES_DOSSIER.indexOf(s.etape) === -1) throw erreur_('Étape inconnue.'); x.etape = s.etape; }
+    if (s.agent_id !== undefined) { if (s.agent_id && !trouver_('AGENTS', s.agent_id)) throw erreur_('Agent introuvable.'); x.agent_id = propre_(s.agent_id, 60); }
+    if (s.partenaire_id !== undefined) {
+      var pt = trouver_('PARTENAIRES', s.partenaire_id);
+      if (!pt || (pt.type !== 'notaire' && pt.type !== 'avocat')) throw erreur_('Un dossier se confie à un notaire ou à un avocat.');
+      x.partenaire_id = pt.id;
+    }
+    x.date_maj = maintenant_();
+    if (s.id) return { dossier: sans_(modifier_('DOSSIERS', s.id, x)) };
+    if (!x.partenaire_id) throw erreur_('Choisissez le partenaire.');
+    if (!x.bien) throw erreur_('Indiquez le bien concerné.');
+    var max = 0; lire_('DOSSIERS').forEach(function (r) { var m = String(r.reference).match(/(\d+)$/); if (m && parseInt(m[1], 10) > max) max = parseInt(m[1], 10); });
+    x.id = identifiant_('DO'); x.reference = x.reference || ('D-' + new Date().getFullYear() + '-' + ('000' + (max + 1)).slice(-3));
+    x.etape = x.etape || ETAPES_DOSSIER[0]; x.date_creation = x.date_maj;
+    return { dossier: sans_(ajouter_('DOSSIERS', x)) };
+  },
+  dossierSupprimer: function (d) { supprimer_('DOSSIERS', d.id); return {}; },
+  programmeEnregistrer: function (d) {
+    var s = d.programme || {}, x = {};
+    ['nom'].forEach(function (k) { if (s[k] !== undefined) x[k] = propre_(s[k], 200); });
+    if (s.lien_brochure !== undefined) {
+      var lien = propre_(s.lien_brochure, 500);
+      if (lien && !/^https?:\/\//i.test(lien)) throw erreur_('Le lien de la brochure doit commencer par http:// ou https://.');
+      x.lien_brochure = lien;
+    }
+    if (s.agent_id !== undefined) { if (s.agent_id && !trouver_('AGENTS', s.agent_id)) throw erreur_('Agent introuvable.'); x.agent_id = propre_(s.agent_id, 60); }
+    if (s.partenaire_id !== undefined) {
+      var pt = trouver_('PARTENAIRES', s.partenaire_id);
+      if (!pt || pt.type !== 'promoteur') throw erreur_('Un programme se confie à un promoteur.');
+      x.partenaire_id = pt.id;
+    }
+    if (s.id) return { programme: sans_(modifier_('PROGRAMMES', s.id, x)) };
+    if (!x.partenaire_id) throw erreur_('Choisissez le promoteur.');
+    if (!x.nom) throw erreur_('Indiquez le nom du programme.');
+    x.id = identifiant_('PR'); x.date_creation = maintenant_();
+    return { programme: sans_(ajouter_('PROGRAMMES', x)) };
+  },
+  programmeSupprimer: function (d) {
+    ['LOTS', 'DEMANDES'].forEach(function (nom) {
+      lire_(nom).filter(function (x) { return x.programme_id === d.id; }).sort(function (a, b) { return b._ligne - a._ligne; })
+        .forEach(function (x) { feuille_(nom).deleteRow(x._ligne); });
+    });
+    supprimer_('PROGRAMMES', d.id);
+    return {};
+  },
+  lotEnregistrer: function (d) {
+    var s = d.lot || {}, x = {};
+    ['nom', 'detail'].forEach(function (k) { if (s[k] !== undefined) x[k] = propre_(s[k], 300); });
+    if (s.statut !== undefined) { if (STATUTS_LOT.indexOf(s.statut) === -1) throw erreur_('Statut inconnu.'); x.statut = s.statut; }
+    x.date_maj = maintenant_();
+    if (s.id) return { lot: sans_(modifier_('LOTS', s.id, x)) };
+    if (!trouver_('PROGRAMMES', s.programme_id)) throw erreur_('Programme introuvable.', 'INTROUVABLE');
+    if (!x.nom) throw erreur_('Indiquez le nom du lot.');
+    x.id = identifiant_('LO'); x.programme_id = s.programme_id; x.statut = x.statut || 'Disponible';
+    return { lot: sans_(ajouter_('LOTS', x)) };
+  },
+  lotSupprimer: function (d) { supprimer_('LOTS', d.id); return {}; },
+  demandeEnregistrer: function (d) {
+    var s = d.demande || {}, x = {};
+    ['lot_nom', 'agent_nom'].forEach(function (k) { if (s[k] !== undefined) x[k] = propre_(s[k], 200); });
+    if (s.statut !== undefined) { if (STATUTS_DEMANDE.indexOf(s.statut) === -1) throw erreur_('Statut inconnu.'); x.statut = s.statut; }
+    if (s.id) return { demande: sans_(modifier_('DEMANDES', s.id, x)) };
+    if (!trouver_('PROGRAMMES', s.programme_id)) throw erreur_('Programme introuvable.', 'INTROUVABLE');
+    if (!x.lot_nom) throw erreur_('Indiquez le lot concerné.');
+    x.id = identifiant_('DE'); x.programme_id = s.programme_id; x.statut = x.statut || 'À confirmer'; x.date = maintenant_();
+    return { demande: sans_(ajouter_('DEMANDES', x)) };
+  },
+  demandeSupprimer: function (d) { supprimer_('DEMANDES', d.id); return {}; },
+  /* Messagerie : un fil de discussion par partenaire */
+  messageEnvoyerAdmin: function (d) {
+    var p = trouver_('PARTENAIRES', d.partenaire_id), texte = propre_(d.texte, 2000).trim();
+    if (!p) throw erreur_('Partenaire introuvable.', 'INTROUVABLE');
+    if (!texte) throw erreur_('Écrivez votre message.');
+    var m = ajouter_('MESSAGES', { id: identifiant_('MS'), partenaire_id: p.id, auteur: 'agence', texte: texte, date: maintenant_(), lu: 'non' });
+    if (p.email) { try { MailApp.sendEmail(p.email, 'Nassiri Real Estate — nouveau message', 'Vous avez un nouveau message de l’agence Nassiri Real Estate.\n\nConnectez-vous à votre Espace Pro pour le lire.'); } catch (e) { /* un échec d'e-mail ne bloque jamais l'action */ } }
+    return { message: sans_(m) };
+  },
+  messagesLusAdmin: function (d) {
+    lire_('MESSAGES').forEach(function (m) { if (m.partenaire_id === d.partenaire_id && m.auteur === 'partenaire' && m.lu !== 'oui') modifier_('MESSAGES', m.id, { lu: 'oui' }); });
     return {};
   },
 
@@ -733,6 +916,64 @@ var AGENT = {
     var b = trouver_('BIENS', d.bien_id);
     if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
     (d.ids || []).forEach(function (id, i) { var p = trouver_('PHOTOS', id); if (p && p.bien_id === d.bien_id) modifier_('PHOTOS', id, { ordre: String(i + 1) }); });
+    return {};
+  }
+};
+
+/* ============================== ESPACE PARTENAIRE ============================== */
+/* Toute action ici est scopée par exigerSessionPartenaire_ : partenaireId est l'identifiant vérifié côté serveur,
+   jamais une valeur envoyée par le client. Un partenaire ne lit ni ne modifie jamais ce qui n'est pas rattaché à lui.
+   Ne sortent jamais d'ici : notes internes, commissions, autres partenaires, prospects, e-mail des agents. */
+
+function contactAgent_(id) {
+  var a = id ? trouver_('AGENTS', id) : null;
+  return a ? { nom: a.nom, telephone: a.telephone, whatsapp: a.whatsapp } : null;
+}
+
+var PARTENAIRE = {
+  deconnexionPartenaire: function (d) { CacheService.getScriptCache().remove('session_partenaire_' + d.jeton); return {}; },
+
+  donneesPartenaire: function (d, pid) {
+    var p = trouver_('PARTENAIRES', pid);
+    var messages = lire_('MESSAGES').filter(function (m) { return m.partenaire_id === pid; }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }).map(sans_);
+    var agence = {}; PARAMETRES_PUBLICS.forEach(function (c) { agence[c] = parametre_(c); });
+    var sortie = { partenaire: { id: p.id, nom: p.nom, societe: p.societe, type: p.type, email: p.email }, agence: agence, messages: messages,
+      non_lus: messages.filter(function (m) { return m.auteur === 'agence' && m.lu !== 'oui'; }).length,
+      listes: { etapesDossier: ETAPES_DOSSIER, statutsLot: STATUTS_LOT } };
+    if (p.type === 'promoteur') {
+      var progs = lire_('PROGRAMMES').filter(function (x) { return x.partenaire_id === pid; }), ids = {};
+      progs.forEach(function (x) { ids[x.id] = true; });
+      sortie.programmes = progs.map(function (x) { return { id: x.id, nom: x.nom, lien_brochure: x.lien_brochure, agent: contactAgent_(x.agent_id) }; });
+      sortie.lots = lire_('LOTS').filter(function (x) { return ids[x.programme_id]; }).map(sans_);
+      sortie.demandes = lire_('DEMANDES').filter(function (x) { return ids[x.programme_id]; }).map(sans_);
+    } else {
+      sortie.dossiers = lire_('DOSSIERS').filter(function (x) { return x.partenaire_id === pid; })
+        .map(function (x) { return { id: x.id, reference: x.reference, bien: x.bien, etape: x.etape, date_maj: x.date_maj, agent: contactAgent_(x.agent_id) }; });
+    }
+    return sortie;
+  },
+  /* Le promoteur met à jour le statut de SES lots uniquement */
+  lotStatutPartenaire: function (d, pid) {
+    var lot = trouver_('LOTS', d.id), prog = lot ? trouver_('PROGRAMMES', lot.programme_id) : null;
+    if (!lot || !prog || prog.partenaire_id !== pid) throw erreur_('Ce lot ne vous appartient pas.', 'INTERDIT');
+    if (STATUTS_LOT.indexOf(d.statut) === -1) throw erreur_('Statut inconnu.');
+    return { lot: sans_(modifier_('LOTS', lot.id, { statut: d.statut, date_maj: maintenant_() })) };
+  },
+  messageEnvoyerPartenaire: function (d, pid) {
+    var texte = propre_(d.texte, 2000).trim();
+    if (!texte) throw erreur_('Écrivez votre message.');
+    var cache = CacheService.getScriptCache(), cle = 'messages_' + pid + '_' + Utilities.formatDate(new Date(), 'UTC', 'yyyyMMddHH');
+    var n = parseInt(cache.get(cle) || '0', 10);
+    if (n >= MAX_MESSAGES_HEURE) throw erreur_('Trop de messages en peu de temps. Réessayez un peu plus tard.', 'LIMITE');
+    cache.put(cle, String(n + 1), 3700);
+    var p = trouver_('PARTENAIRES', pid);
+    var m = ajouter_('MESSAGES', { id: identifiant_('MS'), partenaire_id: pid, auteur: 'partenaire', texte: texte, date: maintenant_(), lu: 'non' });
+    var dest = parametre_('email_alertes');
+    if (dest) { try { MailApp.sendEmail(dest, 'Nassiri Real Estate — message de ' + p.nom, 'Nouveau message de ' + p.nom + (p.societe ? ' (' + p.societe + ')' : '') + '.\n\n' + texte + '\n\nRépondez depuis l’Espace Pro, section « Partenaires ».'); } catch (e) { /* un échec d'e-mail ne bloque jamais l'action */ } }
+    return { message: sans_(m) };
+  },
+  messagesLusPartenaire: function (d, pid) {
+    lire_('MESSAGES').forEach(function (m) { if (m.partenaire_id === pid && m.auteur === 'agence' && m.lu !== 'oui') modifier_('MESSAGES', m.id, { lu: 'oui' }); });
     return {};
   }
 };

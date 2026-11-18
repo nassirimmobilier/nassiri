@@ -84,6 +84,22 @@
     ligne("ALERTES", { id: "A-EX1", date: jour(0), type: "contact", prospect_id: "P-EX1", bien_id: "NR-0001", resume: "Exemple : « Bonjour, ce bien est-il toujours disponible ? »", lu: "non", email_envoye: "non" });
     ligne("ALERTES", { id: "A-EX2", date: jour(9), type: "visite", prospect_id: "P-EX3", bien_id: "NR-0011", resume: "Visite souhaitée — Matin", lu: "oui", email_envoye: "non" });
     [["NR-0001", 5], ["NR-0003", 3], ["NR-0002", 2], ["NR-0013", 1]].forEach(function (f) { for (var i = 0; i < f[1]; i++) ligne("FAVORIS", { date: jour(i), bien_id: f[0], action: "1" }); });
+    /* V11 : exemples de partenaires. Codes PIN de démonstration : notaire 123456, promoteur 654321 */
+    var selP = "demo-sel-partenaire";
+    ligne("PARTENAIRES", { id: "PT-EX1", nom: "Exemple — Karim Alaoui", societe: "Étude notariale (exemple)", type: "notaire", email: "notaire.exemple@example.com",
+      telephone: "+212 600 000 201", whatsapp: "212600000201", sel: selP, hachage: hacher_("123456", selP), actif: "oui", date_creation: jour(10), pin_visible: "123456" });
+    ligne("PARTENAIRES", { id: "PT-EX2", nom: "Exemple — Société Atlas Immo", societe: "Atlas Immo (exemple)", type: "promoteur", email: "promoteur.exemple@example.com",
+      telephone: "+212 600 000 202", whatsapp: "212600000202", sel: selP, hachage: hacher_("654321", selP), actif: "oui", date_creation: jour(8), pin_visible: "654321" });
+    [["DO-EX1", "D-2026-001", "Appartement, Guéliz", "Compromis signé"], ["DO-EX2", "D-2026-002", "Villa, route de l’Ourika", "Promesse de vente"], ["DO-EX3", "D-2026-003", "Riad, Médina", "Acte à signer"]].forEach(function (x) {
+      ligne("DOSSIERS", { id: x[0], reference: x[1], bien: x[2], etape: x[3], partenaire_id: "PT-EX1", agent_id: "AG-EX1", notes: "Note interne d’exemple (jamais visible du partenaire).", date_creation: jour(6), date_maj: jour(2) });
+    });
+    ligne("PROGRAMMES", { id: "PR-EX1", nom: "Résidence Les Jardins (exemple)", partenaire_id: "PT-EX2", agent_id: "AG-EX1", lien_brochure: "https://example.com/brochure", date_creation: jour(7) });
+    [["LO-EX1", "Lot A1", "Appartement 2 chambres", "Disponible"], ["LO-EX2", "Lot A2", "Appartement 3 chambres", "Réservé"], ["LO-EX3", "Lot B1", "Duplex", "Disponible"], ["LO-EX4", "Lot B2", "Villa", "Vendu"]].forEach(function (x) {
+      ligne("LOTS", { id: x[0], programme_id: "PR-EX1", nom: x[1], detail: x[2], statut: x[3], date_maj: jour(3) });
+    });
+    ligne("DEMANDES", { id: "DE-EX1", programme_id: "PR-EX1", lot_nom: "Lot A1 · Appartement 2 chambres", agent_nom: "Youssef Idrissi", statut: "À confirmer", date: jour(1) });
+    ligne("MESSAGES", { id: "MS-EX2", partenaire_id: "PT-EX1", auteur: "partenaire", texte: "Bonjour, pouvez-vous me transmettre le titre foncier du riad ?", date: jour(2), lu: "non" });
+    ligne("MESSAGES", { id: "MS-EX1", partenaire_id: "PT-EX1", auteur: "agence", texte: "Bonjour Maître, le dossier D-2026-003 est prêt pour la signature de l’acte.", date: jour(1), lu: "non" });
     D.marquerPret();
   };
 })();

@@ -280,3 +280,29 @@ button.a-ligne:hover { background: var(--ivoire); }
 .a-simp-doublon, .a-simp-invalide { opacity: .75; }
 .a-simp-invalide .a-simp-info { color: #8a1f11; }
 .a-liste-aide { padding-left: 18px; line-height: 1.5; }
+
+/* V11 — porte d'entrée « Espace Pro » et espace partenaire */
+.a-onglets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; background: var(--ivoire-2); padding: 5px; border-radius: 12px; margin: 6px 0 4px; }
+.a-onglets button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-weight: 500; color: var(--anthracite); cursor: pointer; }
+.a-onglets button[aria-pressed="true"] { background: var(--vert); color: var(--ivoire); }
+.a-connexion-carte > p.a-onglet-texte { text-align: left; margin: 0; font-size: 14.5px; }
+.a-connexion-carte > p.a-onglet-aide { text-align: center; font-size: 13.5px; margin: 0; }
+.a-etapes { display: flex; gap: 6px; margin: 10px 0 6px; }
+.a-etapes span { flex: 1; height: 8px; border-radius: 4px; background: var(--trait); }
+.a-etapes span.est-fait { background: var(--vert); }
+.a-etapes-noms { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--gris); margin-bottom: 8px; }
+.a-fil-messages { display: grid; gap: 10px; margin: 0 0 14px; max-height: 360px; overflow-y: auto; }
+.a-msg { max-width: 86%; padding: 10px 14px; border-radius: 12px; font-size: 15px; line-height: 1.5; white-space: pre-line; background: var(--ivoire-2); justify-self: start; }
+.a-msg small { display: block; color: var(--gris); font-size: 12px; margin-top: 4px; white-space: normal; }
+.a-msg.est-moi { background: var(--vert); color: var(--ivoire); justify-self: end; }
+.a-msg.est-moi small { color: var(--champagne-clair); }
+.a-sous-bloc { border-top: 1px solid var(--trait); padding-top: 14px; margin-top: 14px; display: grid; gap: 10px; }
+.a-sous-bloc:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.a-badge-lot { display: inline-block; font-size: 13px; font-weight: 500; padding: 5px 12px; border-radius: 999px; background: #E6F0EC; color: var(--vert); }
+.a-badge-lot.est-reserve { background: #F6EBD3; color: #6B4F1C; }
+.a-badge-lot.est-vendu { background: #E4E4E1; color: #3F433F; }
+.a-tuiles.a-tuiles-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .a-tuiles-3 .a-tuile:hover { transform: none; box-shadow: none; border-color: var(--trait); }
+@media (max-width: 760px) { .a-tuiles.a-tuiles-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .a-tuiles-3 .a-tuile { padding: 12px; } .a-tuiles-3 .a-tuile strong { font-size: 30px; } }
+#form-message-admin, #form-message { display: grid; gap: 10px; }
+#form-message-admin textarea, #form-message textarea { width: 100%; min-height: 84px; }
+#form-message-admin .btn, #form-message .btn { justify-self: start; }

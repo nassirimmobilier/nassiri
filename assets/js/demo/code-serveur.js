@@ -13,7 +13,7 @@
 
 var VERSION = '2.0';
 var COLONNE_PIN_OK = false;          // vérification de la colonne pin_visible faite une seule fois par exécution
-var BUILD = 'V11 - espace partenaires';   // visible en ouvrant l'adresse du script dans un navigateur
+var BUILD = 'V11.2 - import annonce agents';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -36,7 +36,7 @@ var ONGLETS = {
   FAVORIS: ['date', 'bien_id', 'action'],
   ALERTES: ['id', 'date', 'type', 'prospect_id', 'bien_id', 'resume', 'lu', 'email_envoye'],
   PARAMETRES: ['cle', 'valeur'],
-  AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation', 'pin_visible'],
+  AGENTS: ['id', 'nom', 'email', 'telephone', 'whatsapp', 'sel', 'hachage', 'actif', 'date_creation', 'pin_visible', 'import_illimite'],
   SAMSAR: ['id', 'date_creation', 'nom', 'telephone', 'zone', 'specialite', 'source', 'statut', 'commission', 'notes', 'date_relance', 'dernier_contact', 'date_maj'],
   MOTIFS_REFUS: ['id', 'libelle', 'actif', 'ordre'],
   /* V11 : espace partenaires (notaires, avocats, promoteurs) */
@@ -53,6 +53,7 @@ var TYPES_PARTENAIRE = ['notaire', 'avocat', 'promoteur'];
 var ETAPES_DOSSIER = ['Promesse de vente', 'Compromis signé', 'Acte à signer', 'Titre foncier obtenu'];
 var STATUTS_LOT = ['Disponible', 'Réservé', 'Vendu'];
 var STATUTS_DEMANDE = ['À confirmer', 'Confirmée', 'Refusée'];
+var MAX_IMPORTS_HEURE = 10;         // annonces importées par un agent et par heure (levable agent par agent par l'admin)
 var MAX_MESSAGES_HEURE = 30;        // limite de messages par partenaire et par heure
 /* en_attente : soumis par un agent, attend la validation du staff. refuse : renvoyé à l'agent avec motif. */
 var STATUTS_BIEN = ['brouillon', 'en_attente', 'publie', 'sous-offre', 'vendu', 'archive', 'refuse'];
@@ -165,6 +166,11 @@ function feuille_(nom) {
     if (String(f.getRange(1, colPin).getValue()) !== 'pin_visible') {
       f.getRange(1, colPin, f.getMaxRows(), 1).setNumberFormat('@');
       f.getRange(1, colPin).setValue('pin_visible');
+    }
+    var colImp = ONGLETS.AGENTS.indexOf('import_illimite') + 1;       // V11.2 : réglage « import sans limite » par agent
+    if (String(f.getRange(1, colImp).getValue()) !== 'import_illimite') {
+      f.getRange(1, colImp, f.getMaxRows(), 1).setNumberFormat('@');
+      f.getRange(1, colImp).setValue('import_illimite');
     }
     COLONNE_PIN_OK = true;
   }
@@ -508,7 +514,7 @@ var ADMIN = {
     var favoris = {};
     lire_('FAVORIS').forEach(function (f) { favoris[f.bien_id] = (favoris[f.bien_id] || 0) + (parseInt(f.action, 10) || 0); });
     var param = {}; lire_('PARAMETRES').forEach(function (p) { param[p.cle] = p.valeur; });
-    var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation, pin_visible: codesVisibles_() ? a.pin_visible : '' }; });
+    var agents = tous_('AGENTS').map(function (a) { return { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp, actif: a.actif, date_creation: a.date_creation, pin_visible: codesVisibles_() ? a.pin_visible : '', import_illimite: a.import_illimite || '' }; });
     return { biens: tous_('BIENS'), photos: tous_('PHOTOS'), prospects: tous_('PROSPECTS'), historique: tous_('HISTORIQUE'),
       visites: tous_('VISITES'), propositions: tous_('PROPOSITIONS'), alertes: tous_('ALERTES'), favoris: favoris, parametres: param,
       agents: agents, codes_visibles: codesVisibles_(), samsar: tous_('SAMSAR'), motifsRefus: tous_('MOTIFS_REFUS'),
@@ -629,6 +635,7 @@ var ADMIN = {
     var s = d.agent || {}, a = {};
     ['nom', 'email', 'telephone', 'whatsapp'].forEach(function (k) { if (s[k] !== undefined) a[k] = propre_(s[k], 200); });
     if (s.actif !== undefined) a.actif = oui_(s.actif);
+    if (s.import_illimite !== undefined) a.import_illimite = oui_(s.import_illimite) === 'oui' ? 'oui' : '';
     if (s.id) {
       var avant = trouver_('AGENTS', s.id);
       if (!avant) throw erreur_('Agent introuvable.', 'INTROUVABLE');
@@ -857,6 +864,12 @@ function notifierAdminNouvelleSoumission_(bien, agent) {
 /* Toute action ici est déjà scopée par exigerSessionAgent_ : agentId est l'identifiant vérifié côté serveur,
    jamais une valeur envoyée par le client. Un agent ne peut jamais lire ni modifier le bien d'un autre agent. */
 
+function cleImport_(agentId) { return 'imports_' + agentId + '_' + Utilities.formatDate(new Date(), 'UTC', 'yyyyMMddHH'); }
+function etatImport_(agentId, a) {
+  var illimite = !!(a && a.import_illimite === 'oui'), n = parseInt(CacheService.getScriptCache().get(cleImport_(agentId)) || '0', 10);
+  return { illimite: illimite, limite: MAX_IMPORTS_HEURE, restant: illimite ? null : Math.max(0, MAX_IMPORTS_HEURE - n) };
+}
+
 var AGENT = {
   deconnexionAgent: function (d) { CacheService.getScriptCache().remove('session_agent_' + d.jeton); return {}; },
 
@@ -865,7 +878,7 @@ var AGENT = {
     var mesBiens = lire_('BIENS').filter(function (b) { return b.agent_id === agentId; }).map(function (b) { return sansClefs_(b, ['commission', 'commission_statut']); });
     var mesIds = {}; mesBiens.forEach(function (b) { mesIds[b.id] = true; });
     var mesPhotos = tous_('PHOTOS').filter(function (p) { return mesIds[p.bien_id]; });
-    return { agent: { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp },
+    return { agent: { id: a.id, nom: a.nom, email: a.email, telephone: a.telephone, whatsapp: a.whatsapp }, import_annonce: etatImport_(agentId, a),
       biens: mesBiens, photos: mesPhotos, motifsRefus: tous_('MOTIFS_REFUS').filter(function (m) { return m.actif === 'oui'; }),
       listes: { statutsBienAgent: STATUTS_BIEN_AGENT, transactionsBien: TRANSACTIONS_BIEN } };
   },
@@ -888,6 +901,16 @@ var AGENT = {
     }
     if (soumission) notifierAdminNouvelleSoumission_(r, trouver_('AGENTS', agentId));
     return { bien: sansClefs_(r, ['commission', 'commission_statut']) };
+  },
+  /* V11.2 : création d'un bien préparé par une IA. Toujours au nom de l'agent, jamais publié (brouillon ou en attente de validation). */
+  bienImporterAgent: function (d, agentId) {
+    var a = trouver_('AGENTS', agentId), e = etatImport_(agentId, a);
+    if (!e.illimite && e.restant <= 0) throw erreur_('Vous avez atteint la limite d’imports pour cette heure (' + MAX_IMPORTS_HEURE + '). Réessayez un peu plus tard ou demandez à l’agence de lever la limite.', 'LIMITE');
+    var src = Object.assign({}, d.bien || {}); delete src.id;
+    src.statut = src.statut === 'en_attente' ? 'en_attente' : 'brouillon';
+    var r = AGENT.bienEnregistrerAgent({ bien: src }, agentId);
+    if (!e.illimite) { var cache = CacheService.getScriptCache(), cle = cleImport_(agentId); cache.put(cle, String((parseInt(cache.get(cle) || '0', 10)) + 1), 3700); }
+    return r;
   },
   bienSupprimerAgent: function (d, agentId) {
     var b = trouver_('BIENS', d.id);

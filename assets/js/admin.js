@@ -449,6 +449,8 @@
         '<div class="a-contacts"><button type="button" class="btn btn-ligne" data-action="agent-actif" data-id="' + e(a.id) + '">' + (a.actif === "oui" ? "Désactiver l’accès" : "Réactiver l’accès") + '</button>' +
         '<button type="button" class="btn btn-vert" data-action="nouveau-code" data-id="' + e(a.id) + '">Nouveau code PIN</button></div>' +
         '<p class="a-aide">« Nouveau code PIN » crée un nouveau code (l’ancien ne fonctionne plus)' + (D.codes_visibles === false ? " et le montre une seule fois." : " et l’affiche ici.") + "</p></section>" +
+        '<section class="a-bloc"><h2>Import d’annonces</h2><p class="a-aide">Par défaut, un agent peut importer 10 annonces par heure. Activez l’import sans limite pour une grosse saisie (par exemple tous les biens d’un partenaire d’un coup), puis désactivez-le ensuite.</p>' +
+        '<label class="a-case"><input type="checkbox" data-action-change="agent-import-illimite" data-id="' + e(a.id) + '"' + (a.import_illimite === "oui" ? " checked" : "") + '><span>Import d’annonces sans limite</span></label></section>' +
         '<section class="a-bloc"><h2>Biens apportés (' + mesBiens.length + ")</h2>" +
         (mesBiens.length ? mesBiens.map(function (b) { return '<button class="a-ligne" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '"><span class="a-ligne-texte"><strong>' + e(b.titre) + "</strong><small>" + e(b.id) + "</small></span>" + badgeStatut(b.statut) + "</button>"; }).join("") : '<p class="a-vide">Aucun bien pour le moment.</p>') + "</section></div>") + "</div>";
   }
@@ -1411,6 +1413,7 @@
     "modele-wa-samsar": function (s) { var m = MODELES_SAMSAR.filter(function (x) { return x.id === s.value; })[0], ta = document.getElementById("a-wa-texte"); if (m && ta) ta.value = m.texte(samsar(etat.id)); },
     "statut-visite": function (s) { faire("visiteStatut", { id: s.dataset.id, statut: s.value }, "Visite : " + s.value + ".").then(rendre, rendre); },
     "statut-proposition": function (s) { faire("propositionStatut", { id: s.dataset.id, statut: s.value }, "Statut mis à jour.").then(rendre, rendre); },
+    "agent-import-illimite": function (c) { faire("agentEnregistrer", { agent: { id: c.dataset.id, import_illimite: c.checked ? "oui" : "non" } }, c.checked ? "Import sans limite activé pour cet agent." : "Limite d’import rétablie (10 par heure).").then(rendre, rendre); },
     "dossier-etape": function (s) { faire("dossierEnregistrer", { dossier: { id: s.dataset.id, etape: s.value } }, "Étape mise à jour : " + s.value + ".").then(rendre, rendre); },
     "lot-statut-admin": function (s) { faire("lotEnregistrer", { lot: { id: s.dataset.id, statut: s.value } }, "Lot : " + s.value + ".").then(rendre, rendre); },
     "demande-statut": function (s) { faire("demandeEnregistrer", { demande: { id: s.dataset.id, statut: s.value } }, "Demande : " + s.value + ".").then(rendre, rendre); },

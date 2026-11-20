@@ -308,7 +308,7 @@
         return '<article class="a-bien"><button class="a-bien-photo" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '" aria-label="Modifier ' + e(b.titre) + '">' + A.photo(ph[0] && ph[0].url, "160px", "") + "</button>" +
           '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + ((b.transaction === "location-longue" || b.transaction === "location-courte") ? '<span class="a-statut a-statut-une">' + (LIB_TRANSACTION[b.transaction] || "Location") + "</span>" : "") + (une ? '<span class="a-statut a-statut-une">' + ico("etoile") + " À la une</span>" : "") + (coeur ? '<span class="a-statut a-statut-une">' + ico("coeur") + " Coup de cœur</span>" : "") + (b.exclusivite === "oui" ? '<span class="a-statut a-statut-une">Exclusivité</span>' : "") + (ag ? '<span class="a-statut a-statut-p">' + ico("personnes") + " " + e(ag.nom.replace(/^Exemple — /, "")) + "</span>" : "") + "</div>" +
           "<h3>" + e(b.titre) + "</h3><p>" + e(b.type) + " · " + e(b.ville) + (b.quartier ? " · " + e(b.quartier) : "") + " · Réf. " + e(b.id) + "</p>" +
-          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span>" + (correspondances(b).length ? '<span class="a-mesure" title="Prospects dont les critères correspondent à ce bien">' + ico("personnes") + " " + correspondances(b).length + "</span>" : "") + "</p>" +
+          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix), b.devise) : "Prix à renseigner") + '<span class="a-mesure">' + ico("oeil") + " " + n(b.vues) + '</span><span class="a-mesure">' + ico("coeur") + " " + Math.max(D.favoris[b.id] || 0, 0) + '</span><span class="a-mesure">' + ico("photo") + " " + ph.length + "</span>" + (correspondances(b).length ? '<span class="a-mesure" title="Prospects dont les critères correspondent à ce bien">' + ico("personnes") + " " + correspondances(b).length + "</span>" : "") + "</p>" +
           (b.statut === "refuse" && b.motif_refus ? '<div class="a-refus"><strong>' + ico("info") + " " + e(b.motif_refus) + "</strong>" + (b.commentaire_refus ? "<p>" + e(b.commentaire_refus) + "</p>" : "") + "</div>" : "") + "</div>" +
           '<div class="a-bien-actions">' + (b.statut === "en_attente"
             ? '<button class="btn btn-vert" data-action="valider-bien" data-id="' + e(b.id) + '">' + ico("coche") + " Valider</button><button class=\"btn btn-ligne est-danger\" data-action=\"ouvrir-refus\" data-id=\"" + e(b.id) + '">' + ico("fermer") + " Refuser</button>"
@@ -346,7 +346,7 @@
         champ("titre", "Titre de l’annonce *", b.titre, 'placeholder="ex. Villa contemporaine avec piscine" required', "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type">' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
         '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction">' + (D.listes.transactionsBien || ["vente", "location-longue", "location-courte"]).map(function (t) { return option(t, LIB_TRANSACTION[t] || t, b.transaction || "vente"); }).join("") + "</select></div>" +
-        champ("prix", "Prix (DH)" + ((b.transaction === "location-longue") ? " — par mois" : (b.transaction === "location-courte") ? " — par nuit" : ""), b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') +
+        champ("prix", "Prix" + ((b.transaction === "location-longue") ? " — par mois" : (b.transaction === "location-courte") ? " — par nuit" : ""), b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') + selectDevise(b, "") +
         champ("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + v + '">'; }).join("") + "</datalist>" +
         champ("quartier", "Quartier (affiché au public)", b.quartier, 'placeholder="ex. Palmeraie"') +
       '</div></section>' +
@@ -383,6 +383,7 @@
     var f = document.getElementById("form-bien"); if (!f || !etat.edition) return;
     var b = etat.edition;
     ["titre", "type", "transaction", "prix", "ville", "quartier", "surface", "terrain", "chambres", "sdb", "description", "juridique", "adresse_privee", "notes_privees"].forEach(function (k) { b[k] = f.elements[k].value.trim(); });
+    if (f.elements.devise) b.devise = f.elements.devise.value;
     if (f.elements.commission) b.commission = f.elements.commission.value.trim();
     if (f.elements.commission_statut) b.commission_statut = f.elements.commission_statut.value;
     ["juridique_verifie", "a_la_une", "exclusivite", "coup_de_coeur", "prix_sur_demande"].forEach(function (k) { b[k] = f.elements[k].checked ? "oui" : "non"; });
@@ -516,7 +517,7 @@
     "  \"format\": \"nassiri-annonce\", \"version\": 1,",
     "  \"bien\": {",
     "    \"titre\": \"\", \"type\": \"Villa|Appartement|Riad|Maison|Terrain\", \"transaction\": \"vente|location-longue|location-courte\",",
-    "    \"prix\": 0, \"prix_sur_demande\": false, \"ville\": \"\", \"quartier\": \"\",",
+    "    \"prix\": 0, \"devise\": \"DH|EUR\", \"prix_sur_demande\": false, \"ville\": \"\", \"quartier\": \"\",",
     "    \"surface\": 0, \"terrain\": 0, \"chambres\": 0, \"sdb\": 0,",
     "    \"description\": \"\", \"equipements\": [\"Piscine\"], \"juridique\": \"\",",
     "    \"adresse_privee\": \"\", \"notes_privees\": \"\"",
@@ -524,7 +525,7 @@
     "  \"photos\": [ { \"fichier\": \"photos/01.jpg\", \"principale\": true } ],",
     "  \"a_verifier\": [\"…\"]",
     "}",
-    "Notes : prix en dirhams (DH), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de \"photos\" est l'ordre d'affichage."
+    "Notes : prix dans la devise indiquée par \"devise\" (DH par défaut, ou EUR si le prix est en euros), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de \"photos\" est l'ordre d'affichage."
   ].join("\n");
 
   function nbImp(v) {
@@ -601,7 +602,10 @@
     if (t) b.type = t;
     else if (b.type) al.push({ niveau: "bloquant", texte: "Type de bien « " + b.type + " » inconnu sur le site. Choisissez-le dans la liste ci-dessous (" + A.types.join(", ") + ")." }), b.type = "";
     else b.type = "";
-    if (src.devise && !/^(dh|mad|dhs|dirhams?)$/i.test(String(src.devise).trim())) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(src.devise, 10) + " » : le site affiche uniquement des dirhams (DH). Vérifiez le prix." });
+    var dv = String(src.devise || "").trim();
+    b.devise = /^(eur|€|euros?)$/i.test(dv) ? "EUR" : "";
+    if (b.devise === "EUR") al.push({ niveau: "info", texte: "Prix en euros (€) : le site l’affichera en euros, avec l’équivalent en dirhams à titre indicatif." });
+    else if (dv && !/^(dh|mad|dhs|dirhams?)$/i.test(dv)) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(dv, 10) + " » : le site gère uniquement les dirhams (DH) et les euros (€). Vérifiez le prix." });
     if (src.statut && norm(src.statut) !== "brouillon") al.push({ niveau: "info", texte: "Le statut du fichier est ignoré : l’annonce arrive toujours en brouillon tant que vous ne cliquez pas sur « Valider et publier »." });
     Object.keys(src).forEach(function (k) { if (IMP_CONNUS.indexOf(k) === -1) al.push({ niveau: "info", texte: "Champ « " + nettoyerTexteImp(k, 40) + " » ignoré (il n’existe pas sur le site)." }); });
     var ref = nettoyerTexteImp((brut && brut.reference) || src.reference, 60).replace(/\s+/g, "-");
@@ -617,8 +621,8 @@
     if (!b.titre) al.push({ niveau: "bloquant", texte: "Le titre est obligatoire." });
     if (!b.type) al.push({ niveau: "bloquant", texte: "Choisissez le type de bien." });
     if (!p && b.prix_sur_demande !== "oui") al.push({ niveau: "publier", texte: "Prix manquant : indiquez-le ou cochez « Prix sur demande » pour pouvoir publier." });
-    if (b.transaction === "vente" && p && p < 100000) al.push({ niveau: "attention", texte: "Prix de vente très bas (" + A.prix(p) + ") : vérifiez qu’il est bien en dirhams." });
-    if (b.transaction === "vente" && p > 200000000) al.push({ niveau: "attention", texte: "Prix très élevé (" + A.prix(p) + ") : vérifiez les zéros." });
+    if (b.transaction === "vente" && p && p < (b.devise === "EUR" ? 10000 : 100000)) al.push({ niveau: "attention", texte: "Prix de vente très bas (" + A.prix(p, b.devise) + ") : vérifiez qu’il est bien en " + (b.devise === "EUR" ? "euros" : "dirhams") + "." });
+    if (b.transaction === "vente" && p > (b.devise === "EUR" ? 20000000 : 200000000)) al.push({ niveau: "attention", texte: "Prix très élevé (" + A.prix(p, b.devise) + ") : vérifiez les zéros." });
     if (b.transaction === "location-longue" && p > 1000000) al.push({ niveau: "attention", texte: "Loyer mensuel très élevé : vérifiez le montant." });
     if (s && te && s > te) al.push({ niveau: "attention", texte: "La surface construite (" + s + " m²) dépasse celle du terrain (" + te + " m²)." });
     if (n(b.chambres) > 30) al.push({ niveau: "attention", texte: "Nombre de chambres inhabituel : vérifiez." });
@@ -725,6 +729,7 @@
     var f = document.getElementById("form-import"), I = etat.imp; if (!f || !I) return;
     var b = I.bien;
     IMP_CHAMPS_TEXTE.concat(IMP_CHAMPS_NOMBRE).forEach(function (k) { if (f.elements[k]) b[k] = f.elements[k].value.trim(); });
+    if (f.elements.devise) b.devise = f.elements.devise.value;
     ["prix_sur_demande", "juridique_verifie", "exclusivite", "a_la_une", "coup_de_coeur"].forEach(function (k) { if (f.elements[k]) b[k] = f.elements[k].checked ? "oui" : "non"; });
     b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
     var d = document.querySelector('[name="confirme_doublon"]'); if (d) I.confirmeDoublon = d.checked;
@@ -733,7 +738,7 @@
   function apercuImp() {
     var I = etat.imp, b = I.bien, ph = I.photos, p = n(b.prix);
     var suffixe = b.transaction === "location-longue" ? " / mois" : b.transaction === "location-courte" ? " / nuit" : "";
-    var prix = b.prix_sur_demande === "oui" ? "Prix sur demande" : p ? A.prix(p) + suffixe : "Prix à renseigner";
+    var prix = b.prix_sur_demande === "oui" ? "Prix sur demande" : p ? A.prix(p, b.devise) + suffixe + " (" + A.prixEquiv({ prix: p, devise: b.devise, transaction: b.transaction, prix_sur_demande: b.prix_sur_demande }) + ")" : "Prix à renseigner";
     var chips = [];
     if (n(b.surface)) chips.push(n(b.surface) + " m² construits");
     if (n(b.terrain)) chips.push(n(b.terrain) + " m² de terrain");
@@ -805,7 +810,7 @@
         ch("titre", "Titre *", b.titre, "", "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type" data-action-change="imp-maj"><option value="">— Choisir —</option>' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
         '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction" data-action-change="imp-maj">' + ["vente", "location-longue", "location-courte"].map(function (t) { return option(t, LIB_TRANSACTION[t], b.transaction); }).join("") + "</select></div>" +
-        ch("prix", "Prix (DH)", b.prix, 'inputmode="numeric"') + ch("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + e(v) + '">'; }).join("") + "</datalist>" +
+        ch("prix", "Prix", b.prix, 'inputmode="numeric"') + selectDevise(b, "imp-maj") + ch("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + e(v) + '">'; }).join("") + "</datalist>" +
         ch("quartier", "Quartier (affiché au public)", b.quartier, "") +
         ch("surface", "Surface construite (m²)", b.surface, 'inputmode="numeric"') + ch("terrain", "Surface du terrain (m²)", b.terrain, 'inputmode="numeric"') +
         ch("chambres", "Chambres", b.chambres, 'inputmode="numeric"') + ch("sdb", "Salles de bains", b.sdb, 'inputmode="numeric"') +
@@ -1073,13 +1078,19 @@
     }).join("") : '<p class="a-vide a-bloc">Aucun bien proposé.</p>');
   }
 
+  /* V11.2.9 : devise du prix (dirhams par défaut, ou euros) */
+  function selectDevise(b, action) {
+    return '<div><label for="f-devise">Devise du prix</label><select id="f-devise" name="devise"' + (action ? ' data-action-change="' + action + '"' : "") + '><option value="">Dirhams (DH)</option><option value="EUR"' + (b.devise === "EUR" ? " selected" : "") + ">Euros (€)</option></select></div>";
+  }
+
   /* ====================================================================== PARAMÈTRES */
   function vueParametres() {
     var p = D.parametres;
     return '<form id="form-parametres" class="a-bloc a-form" novalidate><h2>Coordonnées et alertes</h2><div class="a-grille">' +
         champ("email_alertes", "E-mail qui reçoit les alertes", p.email_alertes, 'type="email" placeholder="vous@exemple.com"', "plein") +
         champ("whatsapp", "WhatsApp : Nom:numéro international, séparés par une virgule", p.whatsapp, 'placeholder="ex. Khaled Nassiri:33667407214, Mohamed Nassiri:33641078018"', "plein") + champ("telephone", "Téléphone affiché", p.telephone, 'type="tel"') +
-        champ("email_contact", "E-mail de contact affiché", p.email_contact, 'type="email"', "plein") + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
+        champ("email_contact", "E-mail de contact affiché", p.email_contact, 'type="email"', "plein") +
+        champ("taux_eur", "Taux de change indicatif : dirhams pour 1 euro", p.taux_eur, 'inputmode="decimal" placeholder="ex. 10,6 (laissez vide pour le taux par défaut)"', "plein") + '</div><div class="a-form-pied"><button class="btn btn-vert" type="submit">Enregistrer</button></div></form>' +
       '<section class="a-bloc"><h2>Sécurité des codes PIN</h2>' + (D.codes_visibles === false
         ? '<p class="a-aide">Les codes PIN ne sont plus conservés : ils ne s’affichent qu’une seule fois, à la création ou au changement de code.</p>'
         : '<p class="a-aide">Pour le moment, le code PIN de chaque agent et de chaque partenaire reste visible dans sa fiche, pour faciliter les envois. Quand vous serez prêt, « Sécuriser les codes » efface tous les codes visibles : ils ne s’afficheront plus qu’une seule fois. Les codes déjà donnés continuent de fonctionner.</p><button type="button" class="btn btn-ligne" data-action="securiser-codes">Sécuriser les codes</button>') + "</section>" +

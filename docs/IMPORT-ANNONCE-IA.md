@@ -50,7 +50,7 @@ FORMAT annonce.json :
   "format": "nassiri-annonce", "version": 1,
   "bien": {
     "titre": "", "type": "Villa|Appartement|Riad|Maison|Terrain", "transaction": "vente|location-longue|location-courte",
-    "prix": 0, "prix_sur_demande": false, "ville": "", "quartier": "",
+    "prix": 0, "devise": "DH|EUR", "prix_sur_demande": false, "ville": "", "quartier": "",
     "surface": 0, "terrain": 0, "chambres": 0, "sdb": 0,
     "description": "", "equipements": ["Piscine"], "juridique": "",
     "adresse_privee": "", "notes_privees": ""
@@ -58,7 +58,7 @@ FORMAT annonce.json :
   "photos": [ { "fichier": "photos/01.jpg", "principale": true } ],
   "a_verifier": ["…"]
 }
-Notes : prix en dirhams (DH), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de "photos" est l'ordre d'affichage.
+Notes : prix dans la devise indiquée par "devise" (DH par défaut, ou EUR si le prix est en euros), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de "photos" est l'ordre d'affichage.
 ```
 
 ## Limites et photos

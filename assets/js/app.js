@@ -8,8 +8,24 @@
   var CLE_FAVORIS = "nassiri_favoris";
 
   /* ---------- Outils ---------- */
-  A.prix = function (n) {
-    return new Intl.NumberFormat("fr-FR").format(n).replace(/ | /g, " ") + " DH";
+  /* Prix en dirhams (par défaut) ou en euros (devise = "EUR") */
+  A.prix = function (n, devise) {
+    return new Intl.NumberFormat("fr-FR").format(n).replace(/\u202f|\u00a0/g, " ") + (devise === "EUR" ? " €" : " DH");
+  };
+  /* Taux indicatif : dirhams pour 1 €. Paramètre de l'Espace Pro, sinon valeur de config.js */
+  A.tauxEuro = function () {
+    var t = parseFloat(String((A.agence && A.agence.taux_eur) || "").replace(",", "."));
+    return t >= 5 && t <= 20 ? t : A.config.tauxEuro || 10.6;
+  };
+  /* Prix d'un bien converti en dirhams (pour les filtres, le tri et les comparaisons) */
+  A.prixDH = function (b) { return b.devise === "EUR" ? (b.prix || 0) * A.tauxEuro() : b.prix || 0; };
+  /* Équivalent indicatif dans l'autre devise, arrondi : « ≈ 166 000 € » ou « ≈ 12 960 000 DH » */
+  A.prixEquiv = function (b) {
+    if (b.prix_sur_demande === "oui" || !b.prix) return "";
+    var loc = b.transaction === "location-longue" || b.transaction === "location-courte", pas = loc ? 10 : 1000;
+    var v = b.devise === "EUR" ? b.prix * A.tauxEuro() : b.prix / A.tauxEuro();
+    v = Math.max(pas, Math.round(v / pas) * pas);
+    return "≈ " + A.prix(v, b.devise === "EUR" ? "MAD" : "EUR") + (b.transaction === "location-longue" ? " / mois" : b.transaction === "location-courte" ? " / nuit" : "");
   };
   A.esc = function (s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -24,9 +40,9 @@
   /* Prix affiché selon le type de transaction (vente, location longue durée, location saisonnière) */
   A.prixAffiche = function (b) {
     if (b.prix_sur_demande === "oui" || !b.prix) return "Prix sur demande";
-    if (b.transaction === "location-longue") return A.prix(b.prix) + " / mois";
-    if (b.transaction === "location-courte") return A.prix(b.prix) + " / nuit";
-    return A.prix(b.prix);
+    if (b.transaction === "location-longue") return A.prix(b.prix, b.devise) + " / mois";
+    if (b.transaction === "location-courte") return A.prix(b.prix, b.devise) + " / nuit";
+    return A.prix(b.prix, b.devise);
   };
   A.libelleTransaction = function (b) {
     if (b.transaction === "location-longue") return "À louer";
@@ -140,7 +156,7 @@
         '<p class="carte-lieu">' + A.esc([b.ville, b.quartier].filter(Boolean).join(" · ")) + "</p>" +
         '<h3 class="carte-titre">' + A.esc(b.titre) + "</h3>" +
         '<ul class="carte-carac">' + carac.join("") + "</ul>" +
-        '<div class="carte-pied"><p class="carte-prix">' + A.prixAffiche(b) + "</p>" +
+        '<div class="carte-pied"><p class="carte-prix">' + A.prixAffiche(b) + (A.prixEquiv(b) ? ' <span class="prix-equiv">' + A.prixEquiv(b) + "</span>" : "") + "</p>" +
         '<a class="carte-lien" href="bien.html?id=' + encodeURIComponent(b.id) + '" aria-label="Voir le bien : ' + A.esc(b.titre) + '">Voir le bien ' + A.icone("fleche") + "</a></div>" +
         '<p class="carte-ref">Réf. ' + b.id + "</p>" +
       "</div></article>";

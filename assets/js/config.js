@@ -14,6 +14,9 @@ ATLAS.config = {
   /* Contacts WhatsApp affichés tant que le paramètre « whatsapp » de l'Espace Pro est vide.
      Format : "Nom:numéro international sans +", séparés par une virgule. Numéros publics, pas de secret. */
   whatsapp: "Khaled Nassiri:33667407214, Mohamed Nassiri:33641078018",
+  /* Taux de change indicatif : dirhams pour 1 euro. Il sert à afficher « ≈ … » à côté des prix. Utilisé tant que le paramètre
+     « Taux de change » de l'Espace Pro (Paramètres) est vide. */
+  tauxEuro: 10.6,
   parPage: 6,          // biens chargés à chaque « Afficher plus »
   nouveauJours: 14     // un bien est « Nouveau » pendant N jours après sa publication
 };

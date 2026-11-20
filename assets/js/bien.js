@@ -85,7 +85,7 @@
     else if (b.exclusivite) badges += '<span class="badge badge-or">Exclusivité</span>';
     else if (A.estNouveau(b)) badges += '<span class="badge badge-or">Nouveau</span>';
     var similaires = A.disponibles().filter(function (x) { return x.id !== b.id; })
-      .map(function (x) { return { b: x, s: (x.type === b.type ? 2 : 0) + (x.ville === b.ville ? 2 : 0) + (Math.abs(x.prix - b.prix) < b.prix * 0.5 ? 1 : 0) }; })
+      .map(function (x) { return { b: x, s: (x.type === b.type ? 2 : 0) + (x.ville === b.ville ? 2 : 0) + (Math.abs(A.prixDH(x) - A.prixDH(b)) < A.prixDH(b) * 0.5 ? 1 : 0) }; })
       .sort(function (x, y) { return y.s - x.s; }).slice(0, 3).map(function (x) { return x.b; });
 
     document.getElementById("page-titre").textContent = b.titre;
@@ -97,7 +97,7 @@
     if (md) md.content = b.type + " " + verbe + " à " + b.ville + (b.quartier ? ", " + b.quartier : "") + " : " + (b.surface ? b.surface + " m², " : "") + (b.chambres ? b.chambres + " chambres, " : "") + A.prixAffiche(b) + ". Réf. " + b.id + ".";
     var ld = document.createElement("script"); ld.type = "application/ld+json";
     ld.textContent = JSON.stringify({ "@context": "https://schema.org", "@type": "RealEstateListing", name: b.titre, url: location.href, datePosted: b.date || undefined,
-      description: b.description.slice(0, 300), offers: { "@type": "Offer", price: b.prix, priceCurrency: "MAD", businessFunction: verbe === "à louer" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell" },
+      description: b.description.slice(0, 300), offers: { "@type": "Offer", price: b.prix, priceCurrency: b.devise === "EUR" ? "EUR" : "MAD", businessFunction: verbe === "à louer" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell" },
       about: { "@type": "Residence", address: { "@type": "PostalAddress", addressLocality: b.ville, addressRegion: b.quartier, addressCountry: "MA" } } });
     document.head.appendChild(ld);
 
@@ -108,8 +108,8 @@
         '<div class="fiche-badges">' + badges + "</div>" +
         '<p class="carte-lieu">' + A.esc([b.ville, b.quartier].filter(Boolean).join(" · ")) + "</p>" +
         '<h2 class="fiche-titre">' + A.esc(b.titre) + "</h2>" +
-        '<p class="fiche-prix">' + A.prixAffiche(b) + "</p>" +
-        ((b.transaction || "vente") === "vente" && b.prix && (b.surface || b.terrain) ? '<p class="fiche-prix-m2">soit ' + A.nombre(Math.round(b.prix / (b.surface || b.terrain))) + "\u00a0DH/m² " + (b.surface ? "habitable" : "de terrain") + "</p>" : "") +
+        '<p class="fiche-prix">' + A.prixAffiche(b) + "</p>" + (A.prixEquiv(b) ? '<p class="fiche-prix-equiv">' + A.prixEquiv(b) + " <small>(équivalent indicatif, 1 € = " + String(A.tauxEuro()).replace(".", ",") + " DH ; le prix de référence est celui indiqué ci-dessus)</small></p>" : "") +
+        ((b.transaction || "vente") === "vente" && b.prix && (b.surface || b.terrain) ? '<p class="fiche-prix-m2">soit ' + A.nombre(Math.round(b.prix / (b.surface || b.terrain))) + "\u00a0" + (b.devise === "EUR" ? "€" : "DH") + "/m² " + (b.surface ? "habitable" : "de terrain") + "</p>" : "") +
         '<p class="fiche-partage"><button type="button" class="btn btn-ligne btn-partager" data-partager="' + A.esc(b.id) + '" data-avec-image>' + A.icoPartage + " Partager ce bien</button></p>" +
         '<ul class="fiche-carac">' + carac("surface", b.surface ? A.nombre(b.surface) + " m²" : "", "Surface habitable") + carac("boussole", b.terrain ? A.nombre(b.terrain) + " m²" : "", "Terrain") +
           carac("lit", b.chambres, b.chambres > 1 ? "Chambres" : "Chambre") + carac("bain", b.sdb, b.sdb > 1 ? "Salles de bains" : "Salle de bains") + carac("maison", A.esc(b.type), "Type de bien") + "</ul>" +

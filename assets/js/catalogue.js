@@ -32,8 +32,8 @@
         if (e.transaction === "location") { if (tb !== "location-longue" && tb !== "location-courte") return false; }
         else if (tb !== e.transaction) return false;
       }
-      if (e.bmin && b.prix < +e.bmin) return false;
-      if (e.bmax && b.prix > +e.bmax) return false;
+      if (e.bmin && A.prixDH(b) < +e.bmin) return false;
+      if (e.bmax && A.prixDH(b) > +e.bmax) return false;
       if (e.surface) {
         var tranche = e.surface.split("-"), sMin = +tranche[0] || 0, sMax = tranche[1] ? +tranche[1] : Infinity;
         var s = Math.max(b.surface, b.type === "Terrain" ? b.terrain : 0);
@@ -44,8 +44,8 @@
     });
     var tris = {
       recent: function (a, b) { return new Date(b.date) - new Date(a.date); },
-      "prix-asc": function (a, b) { return a.prix - b.prix; },
-      "prix-desc": function (a, b) { return b.prix - a.prix; }
+      "prix-asc": function (a, b) { return A.prixDH(a) - A.prixDH(b); },
+      "prix-desc": function (a, b) { return A.prixDH(b) - A.prixDH(a); }
     };
     return l.sort(tris[e.tri] || tris.recent);
   }

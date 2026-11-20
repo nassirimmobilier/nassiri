@@ -13,7 +13,7 @@
 
 var VERSION = '2.0';
 var COLONNE_PIN_OK = false;          // vérification de la colonne pin_visible faite une seule fois par exécution
-var BUILD = 'V11.2.1 - envoi fiable des photos';   // visible en ouvrant l'adresse du script dans un navigateur
+var BUILD = 'V11.2.9 - prix en euros ou en dirhams';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -25,7 +25,7 @@ var ONGLETS = {
     'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une',
     'date_creation', 'date_publication', 'date_maj', 'vues', 'adresse_privee', 'notes_privees',
     'transaction', 'prix_sur_demande', 'coup_de_coeur',
-    'agent_id', 'commission', 'commission_statut', 'motif_refus', 'commentaire_refus'],
+    'agent_id', 'commission', 'commission_statut', 'motif_refus', 'commentaire_refus', 'devise'],
   PHOTOS: ['id', 'bien_id', 'url', 'drive_id', 'ordre'],
   PROSPECTS: ['id', 'date_creation', 'nom', 'telephone', 'email', 'budget', 'type_recherche', 'ville_recherche',
     'statut', 'notes', 'date_relance', 'source', 'date_maj'],
@@ -65,12 +65,12 @@ var STATUTS_SAMSAR = ['À contacter', 'Contacté', 'Actif', 'Partenaire', 'Inact
 var STATUTS_VISITE = ['À confirmer', 'Confirmée', 'Effectuée', 'Annulée'];
 var STATUTS_PROPOSITION = ['Nouveau', 'À l’étude', 'Accepté', 'Refusé'];
 var STATUTS_COMMISSION = ['à verser', 'versée'];
-var PARAMETRES_PUBLICS = ['whatsapp', 'telephone', 'email_contact'];
-var PARAMETRES_MODIFIABLES = ['email_alertes', 'whatsapp', 'telephone', 'email_contact'];
+var PARAMETRES_PUBLICS = ['whatsapp', 'telephone', 'email_contact', 'taux_eur'];
+var PARAMETRES_MODIFIABLES = ['email_alertes', 'whatsapp', 'telephone', 'email_contact', 'taux_eur'];
 /* Champs d'un bien visibles du public (jamais adresse_privee ni notes_privees) */
 var CHAMPS_PUBLICS = ['id', 'statut', 'titre', 'type', 'ville', 'quartier', 'prix', 'surface', 'terrain', 'chambres',
   'sdb', 'description', 'equipements', 'juridique', 'juridique_verifie', 'exclusivite', 'a_la_une', 'date_publication',
-  'transaction', 'prix_sur_demande', 'coup_de_coeur'];
+  'transaction', 'prix_sur_demande', 'coup_de_coeur', 'devise'];
 
 /* ============================== MENU DU CLASSEUR ============================== */
 
@@ -152,6 +152,7 @@ function verrou_(fn) {
 
 /* ============================== ACCÈS AU CLASSEUR ============================== */
 
+var COLONNE_DEVISE_OK = false;
 function feuille_(nom) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), f = ss.getSheetByName(nom);
   if (!f && ONGLETS[nom] && ONGLETS_AJOUTES.indexOf(nom) !== -1) {      // onglet ajouté après l'installation initiale : création automatique
@@ -173,6 +174,14 @@ function feuille_(nom) {
       f.getRange(1, colImp).setValue('import_illimite');
     }
     COLONNE_PIN_OK = true;
+  }
+  if (f && nom === 'BIENS' && !COLONNE_DEVISE_OK) {        // V11.2.9 : colonne « devise » ajoutée après l'installation : création automatique
+    var colDev = ONGLETS.BIENS.indexOf('devise') + 1;
+    if (String(f.getRange(1, colDev).getValue()) !== 'devise') {
+      f.getRange(1, colDev, f.getMaxRows(), 1).setNumberFormat('@');
+      f.getRange(1, colDev).setValue('devise');
+    }
+    COLONNE_DEVISE_OK = true;
   }
   if (!f) throw erreur_('Onglet « ' + nom + ' » introuvable : lancez l’installation depuis le menu Nassiri Real Estate.', 'INSTALLATION');
   return f;
@@ -485,6 +494,7 @@ function bienDepuis_(d, estAgent) {
   var b = {};
   ['titre', 'type', 'ville', 'quartier', 'description', 'juridique', 'adresse_privee', 'notes_privees'].forEach(function (k) { if (d[k] !== undefined) b[k] = propre_(d[k], 6000); });
   ['prix', 'surface', 'terrain', 'chambres', 'sdb'].forEach(function (k) { if (d[k] !== undefined) b[k] = nombre_(d[k]); });
+  if (d.devise !== undefined) b.devise = /^(eur|€|euros?)$/i.test(String(d.devise).trim()) ? 'EUR' : '';     // V11.2.9 : prix en euros ou en dirhams (vide = dirhams)
   var bascules = estAgent ? ['prix_sur_demande'] : ['juridique_verifie', 'exclusivite', 'a_la_une', 'prix_sur_demande', 'coup_de_coeur'];
   bascules.forEach(function (k) { if (d[k] !== undefined) b[k] = oui_(d[k]); });
   if (d.equipements !== undefined) b.equipements = (d.equipements instanceof Array ? d.equipements : String(d.equipements).split('|')).map(function (x) { return propre_(x, 60); }).filter(String).join('|');
@@ -599,6 +609,11 @@ var ADMIN = {
     PARAMETRES_MODIFIABLES.forEach(function (cle) {
       if (!d.parametres || d.parametres[cle] === undefined) return;
       var v = propre_(d.parametres[cle], 200), trouve = false;
+      if (cle === 'taux_eur') {                     // V11.2.9 : taux de change indicatif (DH pour 1 €), entre 5 et 20
+        var tx = parseFloat(String(v).replace(',', '.'));
+        if (v !== '' && !(tx >= 5 && tx <= 20)) throw erreur_('Le taux doit être un nombre entre 5 et 20 (dirhams pour 1 euro, par exemple 10,6).');
+        v = v === '' ? '' : String(tx);
+      }
       l.forEach(function (p) { if (p.cle === cle) { feuille_('PARAMETRES').getRange(p._ligne, 2).setValue(v); trouve = true; } });
       if (!trouve) feuille_('PARAMETRES').appendRow([cle, v]);
     });

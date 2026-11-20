@@ -76,7 +76,7 @@
         return '<article class="a-bien"><button class="a-bien-photo" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '" aria-label="Modifier ' + e(b.titre) + '">' + A.photo(ph[0] && ph[0].url, "160px", "") + "</button>" +
           '<div class="a-bien-infos"><div class="a-bien-haut">' + badgeStatut(b.statut) + "</div>" +
           "<h3>" + e(b.titre) + "</h3><p>" + e(b.type) + " · " + e(b.ville) + (b.quartier ? " · " + e(b.quartier) : "") + " · Réf. " + e(b.id) + "</p>" +
-          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix)) : "Prix à renseigner") + '<span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p>" +
+          '<p class="a-bien-prix">' + (b.prix_sur_demande === "oui" ? "Prix sur demande" : n(b.prix) ? A.prix(n(b.prix), b.devise) : "Prix à renseigner") + '<span class="a-mesure">' + ico("photo") + " " + ph.length + "</span></p>" +
           ligneMotif(b) + "</div>" +
           '<div class="a-bien-actions"><button class="btn btn-vert" data-action="aller" data-vue="bien" data-id="' + e(b.id) + '">' + ico("crayon") + " Modifier</button>" +
           (b.statut === "publie" || b.statut === "sous-offre" ? '<a class="a-icone" href="bien.html?id=' + encodeURIComponent(b.id) + '" target="_blank" rel="noopener" title="Voir sur le site">' + ico("oeil") + "</a>" : "") +
@@ -107,7 +107,7 @@
         champ("titre", "Titre de l’annonce *", b.titre, 'placeholder="ex. Villa contemporaine avec piscine" required', "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type">' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
         '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction">' + (D.listes.transactionsBien || ["vente", "location-longue", "location-courte"]).map(function (t) { return option(t, LIB_TRANSACTION[t] || t, b.transaction || "vente"); }).join("") + "</select></div>" +
-        champ("prix", "Prix (DH)" + ((b.transaction === "location-longue") ? " — par mois" : (b.transaction === "location-courte") ? " — par nuit" : ""), b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') +
+        champ("prix", "Prix" + ((b.transaction === "location-longue") ? " — par mois" : (b.transaction === "location-courte") ? " — par nuit" : ""), b.prix, 'inputmode="numeric" placeholder="ex. 4200000"') + selectDevise(b, "") +
         champ("ville", "Ville", b.ville, 'list="l-villes"') + '<datalist id="l-villes">' + A.villes.map(function (v) { return '<option value="' + v + '">'; }).join("") + "</datalist>" +
         champ("quartier", "Quartier (affiché au public)", b.quartier, 'placeholder="ex. Palmeraie"') +
       '</div></section>' +
@@ -131,10 +131,15 @@
         '<button type="submit" class="btn btn-ligne" data-soumettre="0">Enregistrer le brouillon</button>' +
         '<button type="submit" class="btn btn-vert" data-soumettre="1">Soumettre à l’agence</button></div></div></form>';
   }
+  /* V11.2.9 : devise du prix (dirhams par défaut, ou euros) */
+  function selectDevise(b, action) {
+    return '<div><label for="f-devise">Devise du prix</label><select id="f-devise" name="devise"' + (action ? ' data-action-change="' + action + '"' : "") + '><option value="">Dirhams (DH)</option><option value="EUR"' + (b.devise === "EUR" ? " selected" : "") + ">Euros (€)</option></select></div>";
+  }
   function lireFormBien() {
     var f = document.getElementById("form-bien"); if (!f || !etat.edition) return;
     var b = etat.edition;
     ["titre", "type", "transaction", "prix", "ville", "quartier", "surface", "terrain", "chambres", "sdb", "description", "juridique"].forEach(function (k) { b[k] = f.elements[k].value.trim(); });
+    if (f.elements.devise) b.devise = f.elements.devise.value;
     b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
   }
   function enregistrerBien(soumettre, silencieux) {
@@ -206,8 +211,8 @@
     if (!b.titre) al.push({ niveau: "bloquant", texte: "Le titre est obligatoire." });
     if (!b.type) al.push({ niveau: "bloquant", texte: "Choisissez le type de bien." });
     if (!p && b.prix_sur_demande !== "oui") al.push({ niveau: "publier", texte: "Prix manquant : indiquez-le ou cochez « Prix sur demande » pour pouvoir soumettre l’annonce à l’agence." });
-    if (b.transaction === "vente" && p && p < 100000) al.push({ niveau: "attention", texte: "Prix de vente très bas (" + A.prix(p) + ") : vérifiez qu’il est bien en dirhams." });
-    if (b.transaction === "vente" && p > 200000000) al.push({ niveau: "attention", texte: "Prix très élevé (" + A.prix(p) + ") : vérifiez les zéros." });
+    if (b.transaction === "vente" && p && p < (b.devise === "EUR" ? 10000 : 100000)) al.push({ niveau: "attention", texte: "Prix de vente très bas (" + A.prix(p, b.devise) + ") : vérifiez qu’il est bien en " + (b.devise === "EUR" ? "euros" : "dirhams") + "." });
+    if (b.transaction === "vente" && p > (b.devise === "EUR" ? 20000000 : 200000000)) al.push({ niveau: "attention", texte: "Prix très élevé (" + A.prix(p, b.devise) + ") : vérifiez les zéros." });
     if (b.transaction === "location-longue" && p > 1000000) al.push({ niveau: "attention", texte: "Loyer mensuel très élevé : vérifiez le montant." });
     if (s && te && s > te) al.push({ niveau: "attention", texte: "La surface construite (" + s + " m²) dépasse celle du terrain (" + te + " m²)." });
     if (n(b.chambres) > 30) al.push({ niveau: "attention", texte: "Nombre de chambres inhabituel : vérifiez." });
@@ -266,6 +271,7 @@
     var f = document.getElementById("form-import"), I = etat.imp; if (!f || !I || !I.bien) return;
     var b = I.bien;
     IA().CHAMPS_TEXTE.concat(IA().CHAMPS_NOMBRE).forEach(function (k) { if (f.elements[k]) b[k] = f.elements[k].value.trim(); });
+    if (f.elements.devise) b.devise = f.elements.devise.value;
     if (f.elements.prix_sur_demande) b.prix_sur_demande = f.elements.prix_sur_demande.checked ? "oui" : "non";
     b.equipements = Array.prototype.filter.call(f.querySelectorAll('[name="equipement"]'), function (c) { return c.checked; }).map(function (c) { return c.value; }).join("|");
     var d = document.querySelector('[name="confirme_doublon"]'); if (d) I.confirmeDoublon = d.checked;
@@ -273,7 +279,7 @@
   function apercuImp() {
     var I = etat.imp, b = I.bien, ph = I.photos, p = n(b.prix);
     var suffixe = b.transaction === "location-longue" ? " / mois" : b.transaction === "location-courte" ? " / nuit" : "";
-    var prix = b.prix_sur_demande === "oui" ? "Prix sur demande" : p ? A.prix(p) + suffixe : "Prix à renseigner";
+    var prix = b.prix_sur_demande === "oui" ? "Prix sur demande" : p ? A.prix(p, b.devise) + suffixe + " (" + A.prixEquiv({ prix: p, devise: b.devise, transaction: b.transaction, prix_sur_demande: b.prix_sur_demande }) + ")" : "Prix à renseigner";
     var chips = [];
     if (n(b.surface)) chips.push(n(b.surface) + " m² construits");
     if (n(b.terrain)) chips.push(n(b.terrain) + " m² de terrain");
@@ -343,7 +349,7 @@
         ch("titre", "Titre de l’annonce *", b.titre, "required", "plein") +
         '<div><label for="f-type">Type de bien</label><select id="f-type" name="type" data-action-change="imp-maj"><option value="">— Choisir —</option>' + A.types.map(function (t) { return option(t, t, b.type); }).join("") + "</select></div>" +
         '<div><label for="f-transaction">Transaction</label><select id="f-transaction" name="transaction" data-action-change="imp-maj">' + (D.listes.transactionsBien || ["vente", "location-longue", "location-courte"]).map(function (t) { return option(t, LIB_TRANSACTION[t] || t, b.transaction || "vente"); }).join("") + "</select></div>" +
-        ch("prix", "Prix (DH)", b.prix, 'inputmode="numeric"') + '<div><label class="a-case" style="margin-top:28px"><input type="checkbox" name="prix_sur_demande" data-action-change="imp-maj"' + (b.prix_sur_demande === "oui" ? " checked" : "") + "><span>Prix sur demande</span></label></div>" +
+        ch("prix", "Prix", b.prix, 'inputmode="numeric"') + selectDevise(b, "imp-maj") + '<div><label class="a-case" style="margin-top:28px"><input type="checkbox" name="prix_sur_demande" data-action-change="imp-maj"' + (b.prix_sur_demande === "oui" ? " checked" : "") + "><span>Prix sur demande</span></label></div>" +
         ch("ville", "Ville", b.ville, "") + ch("quartier", "Quartier (affiché au public)", b.quartier, "") + "</div>" +
         '<div class="a-grille a-grille-4" style="margin-top:14px">' + ch("surface", "Surface habitable (m²)", b.surface, 'inputmode="numeric"') + ch("terrain", "Terrain (m²)", b.terrain, 'inputmode="numeric"') + ch("chambres", "Chambres", b.chambres, 'inputmode="numeric"') + ch("sdb", "Salles de bains", b.sdb, 'inputmode="numeric"') + "</div>" +
         '<label class="a-etiquette">Équipements</label><div class="a-cases">' + tous.map(function (x) { return '<label class="a-case"><input type="checkbox" name="equipement" value="' + e(x) + '" data-action-change="imp-maj"' + (eq.indexOf(x) !== -1 ? " checked" : "") + "><span>" + e(x) + "</span></label>"; }).join("") + "</div>" +

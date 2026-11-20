@@ -22,7 +22,7 @@
     "  \"format\": \"nassiri-annonce\", \"version\": 1,",
     "  \"bien\": {",
     "    \"titre\": \"\", \"type\": \"Villa|Appartement|Riad|Maison|Terrain\", \"transaction\": \"vente|location-longue|location-courte\",",
-    "    \"prix\": 0, \"prix_sur_demande\": false, \"ville\": \"\", \"quartier\": \"\",",
+    "    \"prix\": 0, \"devise\": \"DH|EUR\", \"prix_sur_demande\": false, \"ville\": \"\", \"quartier\": \"\",",
     "    \"surface\": 0, \"terrain\": 0, \"chambres\": 0, \"sdb\": 0,",
     "    \"description\": \"\", \"equipements\": [\"Piscine\"], \"juridique\": \"\",",
     "    \"adresse_privee\": \"\", \"notes_privees\": \"\"",
@@ -30,7 +30,7 @@
     "  \"photos\": [ { \"fichier\": \"photos/01.jpg\", \"principale\": true } ],",
     "  \"a_verifier\": [\"…\"]",
     "}",
-    "Notes : ne mentionne JAMAIS de commission ni d'honoraires ; prix en dirhams (DH), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de \"photos\" est l'ordre d'affichage."
+    "Notes : ne mentionne JAMAIS de commission ni d'honoraires ; prix dans la devise indiquée par \"devise\" (DH par défaut, ou EUR si le prix est en euros), nombres sans espaces ; surface = surface construite en m² ; terrain en m² ; adresse_privee et notes_privees ne sont jamais affichées au public ; l'ordre de \"photos\" est l'ordre d'affichage."
   ].join("\n");
 
   function nbImp(v) {
@@ -107,7 +107,10 @@
     if (t) b.type = t;
     else if (b.type) al.push({ niveau: "bloquant", texte: "Type de bien « " + b.type + " » inconnu sur le site. Choisissez-le dans la liste ci-dessous (" + A.types.join(", ") + ")." }), b.type = "";
     else b.type = "";
-    if (src.devise && !/^(dh|mad|dhs|dirhams?)$/i.test(String(src.devise).trim())) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(src.devise, 10) + " » : le site affiche uniquement des dirhams (DH). Vérifiez le prix." });
+    var dv = String(src.devise || "").trim();
+    b.devise = /^(eur|€|euros?)$/i.test(dv) ? "EUR" : "";
+    if (b.devise === "EUR") al.push({ niveau: "info", texte: "Prix en euros (€) : le site l’affichera en euros, avec l’équivalent en dirhams à titre indicatif." });
+    else if (dv && !/^(dh|mad|dhs|dirhams?)$/i.test(dv)) al.push({ niveau: "attention", texte: "Devise « " + nettoyerTexteImp(dv, 10) + " » : le site gère uniquement les dirhams (DH) et les euros (€). Vérifiez le prix." });
     if (src.statut && norm(src.statut) !== "brouillon") al.push({ niveau: "info", texte: "Le statut du fichier est ignoré : l’annonce arrive toujours en brouillon tant que vous ne cliquez pas sur « Valider et publier »." });
     Object.keys(src).forEach(function (k) { if (IMP_CONNUS.indexOf(k) === -1) al.push({ niveau: "info", texte: "Champ « " + nettoyerTexteImp(k, 40) + " » ignoré (il n’existe pas sur le site)." }); });
     var ref = nettoyerTexteImp((brut && brut.reference) || src.reference, 60).replace(/\s+/g, "-");

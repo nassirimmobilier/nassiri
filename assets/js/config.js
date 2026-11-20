@@ -18,5 +18,5 @@ ATLAS.config = {
   nouveauJours: 14     // un bien est « Nouveau » pendant N jours après sa publication
 };
 ATLAS.types = ["Villa", "Appartement", "Riad", "Maison", "Terrain"];
-ATLAS.villes = ["Marrakech", "Casablanca", "Rabat", "Tanger", "Agadir"];
+ATLAS.villes = ["Marrakech", "Meknès", "Casablanca", "Rabat", "Tanger", "Agadir"];
 ATLAS.equipements = ["Piscine", "Jardin", "Terrasse", "Patio", "Climatisation", "Chauffage", "Cheminée", "Cuisine équipée", "Ascenseur", "Parking", "Garage", "Bassin", "Hammam", "Vue dégagée", "Meublé", "Sécurité / gardiennage"];

@@ -401,7 +401,7 @@
       if (lc) lc.href = canon; if (og) og.content = canon;
     }
     /* Mesure d'audience (v6) : activée seulement si config.js contient un identifiant, jamais en démo ni dans l'Espace Pro */
-    if (A.config.analyticsId && !A.demo && !/admin\.html$/.test(location.pathname)) {
+    if (A.config.analyticsId && !A.demo && !/(admin|agent|partenaire|espace-pro)\.html$/.test(location.pathname)) {      /* V11.2.1 : aucune mesure dans l'Espace Pro */
       var st = document.createElement("script"); st.src = "assets/js/stats.js"; st.defer = true; document.head.appendChild(st);
     }
     A.rendreContacts();

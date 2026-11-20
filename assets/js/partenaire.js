@@ -141,6 +141,8 @@
         faire("messageEnvoyerPartenaire", { texte: v.texte }, "Message envoyé.").then(rendre, function () {});
       }
     });
+    /* V11.2.1 : actualisation automatique toutes les 60 s (jamais pendant la rédaction d'un message) */
+    A.actualisationAuto({ pret: function () { return !!D; }, donnees: function () { return D; }, lire: function () { return A.apiPartenaire("donneesPartenaire"); }, ecrire: function (r) { D = r; }, rendre: rendre });
     if (!A.jetonPartenaire.lire()) { versPorte(); return; }
     racine.innerHTML = '<p class="a-chargement">Chargement…</p>';
     charger().then(rendre, function () { A.jetonPartenaire.ecrire(""); D = null; versPorte(); });

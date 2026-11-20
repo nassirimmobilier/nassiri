@@ -13,7 +13,7 @@
 
 var VERSION = '2.0';
 var COLONNE_PIN_OK = false;          // vérification de la colonne pin_visible faite une seule fois par exécution
-var BUILD = 'V11.2 - import annonce agents';   // visible en ouvrant l'adresse du script dans un navigateur
+var BUILD = 'V11.2.1 - envoi fiable des photos';   // visible en ouvrant l'adresse du script dans un navigateur
 var DUREE_SESSION = 21600;          // 6 h (maximum du cache Apps Script)
 var MAX_ECHECS = 5;                 // tentatives de connexion avant blocage
 var BLOCAGE = 900;                  // 15 min
@@ -849,13 +849,15 @@ function notifierAgentDeBien_(bien, sujet, corps) {
   if (!a || !a.email) return;
   try { MailApp.sendEmail(a.email, 'Nassiri Real Estate — ' + sujet, corps); } catch (e) { /* un échec d'e-mail ne doit jamais bloquer l'action */ }
 }
-function notifierAdminNouvelleSoumission_(bien, agent) {
+function notifierAdminNouvelleSoumission_(bien, agent, attendues) {
   var dest = parametre_('email_alertes');
   if (!dest) return;
   try {
+    var nb = lire_('PHOTOS').filter(function (p) { return p.bien_id === bien.id; }).length;      // V11.2.1 : nombre de photos réellement reçues
+    var photos = '\nPhotos : ' + nb + (attendues && attendues > nb ? ' reçues sur ' + attendues + ' prévues (les autres arrivent sur la même annonce)' : '');
     MailApp.sendEmail(dest, 'Nassiri Real Estate — Bien à valider : ' + bien.titre,
       (agent ? agent.nom : 'Un agent') + ' a soumis un bien pour validation.\n\nBien : ' + bien.id + ' — ' + bien.titre +
-      '\nVille : ' + bien.ville + (bien.quartier ? ', ' + bien.quartier : '') +
+      '\nVille : ' + bien.ville + (bien.quartier ? ', ' + bien.quartier : '') + photos +
       '\n\nRetrouvez-le dans l’Espace Pro, section « À valider ».');
   } catch (e) { /* un échec d'e-mail ne doit jamais bloquer l'action */ }
 }
@@ -902,15 +904,31 @@ var AGENT = {
     if (soumission) notifierAdminNouvelleSoumission_(r, trouver_('AGENTS', agentId));
     return { bien: sansClefs_(r, ['commission', 'commission_statut']) };
   },
-  /* V11.2 : création d'un bien préparé par une IA. Toujours au nom de l'agent, jamais publié (brouillon ou en attente de validation). */
+  /* V11.2 : création d'un bien préparé par une IA. Toujours au nom de l'agent, jamais publié.
+     V11.2.1 : le bien est TOUJOURS créé en brouillon : il n'est soumis à l'agence (et l'alerte e-mail n'est envoyée)
+     qu'une fois les photos envoyées, par l'appel bienFinaliserAgent. */
   bienImporterAgent: function (d, agentId) {
     var a = trouver_('AGENTS', agentId), e = etatImport_(agentId, a);
     if (!e.illimite && e.restant <= 0) throw erreur_('Vous avez atteint la limite d’imports pour cette heure (' + MAX_IMPORTS_HEURE + '). Réessayez un peu plus tard ou demandez à l’agence de lever la limite.', 'LIMITE');
     var src = Object.assign({}, d.bien || {}); delete src.id;
-    src.statut = src.statut === 'en_attente' ? 'en_attente' : 'brouillon';
+    src.statut = 'brouillon';
     var r = AGENT.bienEnregistrerAgent({ bien: src }, agentId);
     if (!e.illimite) { var cache = CacheService.getScriptCache(), cle = cleImport_(agentId); cache.put(cle, String((parseInt(cache.get(cle) || '0', 10)) + 1), 3700); }
     return r;
+  },
+  /* V11.2.1 : dernière étape d'un import. Soumet le bien à l'agence (statut « en attente ») et envoie l'alerte e-mail,
+     une seule fois : un second appel sur un bien déjà soumis ne renvoie rien. */
+  bienFinaliserAgent: function (d, agentId) {
+    var b = trouver_('BIENS', d.id);
+    if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
+    var r = b, soumis = false;
+    if (d.soumettre && ['brouillon', 'refuse'].indexOf(b.statut) !== -1) {
+      r = modifier_('BIENS', b.id, { statut: 'en_attente', motif_refus: '', commentaire_refus: '', date_maj: maintenant_() });
+      soumis = true;
+      notifierAdminNouvelleSoumission_(r, trouver_('AGENTS', agentId), parseInt(d.photos_prevues, 10) || 0);
+    }
+    var nb = lire_('PHOTOS').filter(function (p) { return p.bien_id === b.id; }).length;
+    return { bien: sansClefs_(r, ['commission', 'commission_statut']), soumis: soumis, photos: nb };
   },
   bienSupprimerAgent: function (d, agentId) {
     var b = trouver_('BIENS', d.id);
@@ -924,8 +942,17 @@ var AGENT = {
   photoAjouterAgent: function (d, agentId) {
     var b = trouver_('BIENS', d.bien_id);
     if (!b || b.agent_id !== agentId) throw erreur_('Ce bien ne vous appartient pas.', 'INTERDIT');
-    var s = stockerPhoto_(d.photo, d.bien_id), n = lire_('PHOTOS').filter(function (p) { return p.bien_id === d.bien_id; }).length;
-    return { photo: sans_(ajouter_('PHOTOS', { id: identifiant_('PH'), bien_id: d.bien_id, url: s.url, drive_id: s.drive_id, ordre: String(n + 1) })) };
+    /* V11.2.1 : un bien vendu ou archivé n'accepte plus de photo ; les photos ajoutées à un bien déjà publié sont en ligne tout de suite. */
+    if (['vendu', 'archive'].indexOf(b.statut) !== -1) throw erreur_('Ce bien est clos : les photos ne peuvent plus être ajoutées.', 'INTERDIT');
+    /* V11.2.1 : « cle » identifie une photo précise. Si l'envoi est répété (coupure réseau après réception), la photo déjà enregistrée est renvoyée sans doublon. */
+    var cache = CacheService.getScriptCache(), cleCache = d.cle ? 'photo_' + d.bien_id + '_' + String(d.cle).replace(/[^\w\-]/g, '').slice(0, 60) : '';
+    if (cleCache) { var deja = cache.get(cleCache), pe = deja ? trouver_('PHOTOS', deja) : null; if (pe) return { photo: sans_(pe), deja: true }; }
+    var n = lire_('PHOTOS').filter(function (p) { return p.bien_id === d.bien_id; }).length;
+    if (n >= 40) throw erreur_('Maximum 40 photos par bien.', 'LIMITE');
+    var s = stockerPhoto_(d.photo, d.bien_id);
+    var ph = ajouter_('PHOTOS', { id: identifiant_('PH'), bien_id: d.bien_id, url: s.url, drive_id: s.drive_id, ordre: String(n + 1) });
+    if (cleCache) cache.put(cleCache, ph.id, 21600);
+    return { photo: sans_(ph) };
   },
   photoSupprimerAgent: function (d, agentId) {
     var p = trouver_('PHOTOS', d.id);

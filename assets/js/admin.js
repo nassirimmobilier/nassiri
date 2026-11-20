@@ -510,7 +510,7 @@
   var CONSIGNE_IA = [
     "Tu prépares une annonce pour mon site immobilier Nassiri Real Estate (Maroc). Je te donne les informations du bien et des photos.",
     "RÈGLES : n'invente RIEN. Une information absente reste vide (\"\" ou null) et tu la listes dans \"a_verifier\". Rédige en français, ton professionnel et sobre.",
-    "LIVRABLE : un fichier ZIP contenant annonce.json et un dossier photos/ (JPEG, 1800 px max, nommés 01.jpg, 02.jpg…). Si tu ne peux pas créer de ZIP, donne-moi uniquement le JSON ci-dessous, dans un bloc de code.",
+    "LIVRABLE : un fichier ZIP contenant annonce.json et un dossier photos/ (JPEG, 1600 px max, nommés 01.jpg, 02.jpg…). Si tu ne peux pas créer de ZIP, donne-moi uniquement le JSON ci-dessous, dans un bloc de code.",
     "FORMAT annonce.json :",
     "{",
     "  \"format\": \"nassiri-annonce\", \"version\": 1,",
@@ -1510,6 +1510,12 @@
         if (!v.libelle) { A.message("Indiquez un libellé."); return; }
         faire("motifEnregistrer", { motif: v }, "Motif enregistré.", true).then(function () { charger().then(rendre); f.reset(); });
       }
+    });
+    /* V11.2.1 : actualisation automatique toutes les 60 s sur les vues de liste (jamais pendant une édition, un import ou une fenêtre ouverte) */
+    A.actualisationAuto({
+      pret: function () { return D && ["tableau", "biens", "agents", "partenaires", "prospects", "demandes", "samsars"].indexOf(etat.vue) !== -1 && !etat.imp && !etat.simp && !etat.refus && !etat.sub && !etat.occupe; },
+      donnees: function () { return D; }, lire: function () { return A.api("donnees"); },
+      ecrire: function (r) { D = r; try { sessionStorage.removeItem("nassiri_catalogue"); } catch (x) {} }, rendre: rendre
     });
     /* Session existante : on tente de reprendre directement */
     if (A.jeton.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jeton.ecrire(""); D = null; window.location.replace("espace-pro.html?role=admin"); }); }

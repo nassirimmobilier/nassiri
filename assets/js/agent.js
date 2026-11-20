@@ -89,9 +89,15 @@
     var nouveau = !etat.id, b = etat.edition || (etat.edition = nouveau ? { statut: "brouillon", type: "Villa", ville: "Marrakech", equipements: "" } : Object.assign({}, bien(etat.id)));
     if (!b) return '<p class="a-vide a-bloc">Bien introuvable.</p>';
     if (!nouveau && ["brouillon", "en_attente", "refuse"].indexOf(b.statut) === -1) {
+      /* V11.2.1 (option A) : sur un bien publié, l'agent peut AJOUTER des photos ; elles sont en ligne tout de suite */
+      var enLigne = b.statut === "publie" || b.statut === "sous-offre", phl = photosDe(etat.id);
       return '<section class="a-bloc"><h2>' + e(b.titre) + "</h2>" + badgeStatut(b.statut) +
-        '<p class="a-aide">Ce bien est déjà validé par l’agence : il ne peut plus être modifié depuis l’Espace Agent. Contactez l’agence pour toute mise à jour.</p>' +
-        '<button type="button" class="btn btn-ligne" data-action="aller" data-vue="biens">Retour à mes biens</button></section>';
+        '<p class="a-aide">Ce bien est déjà validé par l’agence : ses informations ne peuvent plus être modifiées depuis l’Espace Agent. Contactez l’agence pour toute mise à jour.</p></section>' +
+        (enLigne ? '<section class="a-bloc"><h2>Photos (' + phl.length + ")</h2><p class=\"a-aide\">Vous pouvez ajouter des photos : <strong>elles sont mises en ligne tout de suite</strong> (au plus 40 photos par bien). Pour en retirer ou changer l’ordre, contactez l’agence.</p>" +
+          '<div class="a-photos">' + phl.map(function (p, i) { return '<div class="a-photo' + (i === 0 ? " est-principale" : "") + '">' + A.photo(p.url, "200px", "Photo " + (i + 1)) + (i === 0 ? '<span class="a-photo-etiquette">' + ico("etoile") + " Principale</span>" : "") + "</div>"; }).join("") +
+          '<label class="a-photo a-photo-ajout" for="f-photos">' + ico("plus") + "<span>Ajouter des photos</span></label></div>" +
+          '<input class="sr" id="f-photos" type="file" accept="image/*" multiple><p class="a-aide" id="a-envoi" hidden></p></section>' : "") +
+        '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="aller" data-vue="biens">Retour à mes biens</button></div>';
     }
     var ph = nouveau ? [] : photosDe(etat.id), eq = String(b.equipements || "").split("|").filter(Boolean);
     var tous = A.equipements.concat(eq.filter(function (x) { return A.equipements.indexOf(x) === -1; }));
@@ -146,17 +152,28 @@
   function envoyerPhotos(fichiers) {
     var info = function (t) { var i = document.getElementById("a-envoi"); if (i) { i.textContent = t; i.hidden = !t; } };
     var debut = etat.id ? Promise.resolve() : enregistrerBien(false, true);
+    var garde = function (ev) { ev.preventDefault(); ev.returnValue = ""; };
+    window.addEventListener("beforeunload", garde);
     return debut.then(function () {
-      var liste = Array.prototype.slice.call(fichiers), fait = 0, echecs = 0, id = etat.id;
-      return liste.reduce(function (p, f) {
+      var liste = Array.prototype.slice.call(fichiers), fait = 0, echecs = 0, id = etat.id, lot = "m" + Date.now().toString(36);
+      var pause = function (ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); };
+      var envoyer = function (ph, cle, tentative) {
+        return A.apiAgent("photoAjouterAgent", { bien_id: id, cle: cle, photo: { nom: ph.nom, mime: ph.mime, donnees: ph.donnees } }).catch(function (err) {
+          if (err.code === "AUTH" || err.code === "INTERDIT" || err.code === "LIMITE" || tentative >= 2) throw err;
+          return pause(tentative ? 4000 : 1500).then(function () { return envoyer(ph, cle, tentative + 1); });
+        });
+      };
+      return liste.reduce(function (p, f, i) {
         return p.then(function () {
           info("Envoi de la photo " + (fait + 1) + " sur " + liste.length + "…");
-          return A.preparerPhoto(f).then(function (ph) { return faire("photoAjouterAgent", { bien_id: id, photo: { nom: ph.nom, mime: ph.mime, donnees: ph.donnees } }, "", true); })
+          return A.preparerPhoto(f).then(function (ph) { return envoyer(ph, lot + "-" + i, 0); })
             .then(function () { fait++; }, function (err) { echecs++; fait++; if (err.code === "AUTH") throw err; });
         });
       }, Promise.resolve()).then(function () { lireFormBien(); return charger(); }).then(function () {
-        rendre(); A.message(echecs ? echecs + " photo(s) n’ont pas pu être ajoutées." : liste.length + (liste.length > 1 ? " photos ajoutées." : " photo ajoutée."));
-      });
+        window.removeEventListener("beforeunload", garde);
+        var b = bien(id), enLigne = b && (b.statut === "publie" || b.statut === "sous-offre");
+        rendre(); A.message(echecs ? echecs + " photo(s) n’ont pas pu être ajoutées : réessayez avec ces photos." : liste.length + (liste.length > 1 ? " photos ajoutées" : " photo ajoutée") + (enLigne ? " et déjà en ligne." : "."));
+      }, function (err) { window.removeEventListener("beforeunload", garde); throw err; });
     });
   }
   function ordonnerPhotos(idPhoto, mouvement) {
@@ -208,7 +225,7 @@
     return fichiers.reduce(function (p, f) {
       return p.then(function () {
         infoImp("Préparation de la photo " + (fait + 1) + " sur " + fichiers.length + "…");
-        return A.preparerPhoto(f.fichier).then(function (ph) { ph.principale = f.principale; I.photos.push(ph); },
+        return A.preparerPhoto(f.fichier).then(function (ph) { ph.principale = f.principale; ph.uid = "p" + (I.compteur = (I.compteur || 0) + 1); ph.envoye = false; I.photos.push(ph); },
           function (err) { alertes.push({ niveau: "attention", texte: "Photo ignorée — " + err.message }); });
       }).then(function () { fait++; });
     }, Promise.resolve()).then(function () {
@@ -218,7 +235,8 @@
   }
   function demarrerImp(lu) {
     var res = IA().normaliser(lu.brut), fixes = res.alertes.concat(lu.alertes || []), file = etat.imp && etat.imp.file ? etat.imp.file : null;
-    etat.imp = { etape: "apercu", source: lu.source, bien: res.bien, photos: [], alertesFixes: fixes, doublon: null, confirmeDoublon: false, occupe: false, resultat: null, file: file };
+    etat.imp = { etape: "apercu", source: lu.source, bien: res.bien, photos: [], alertesFixes: fixes, doublon: null, confirmeDoublon: false, occupe: false, resultat: null, file: file,
+      id: null, cle: "i" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), finalise: false, soumettre: false, rapide: false, erreur: "" };
     return preparerPhotosImp(lu.fichiers || [], fixes).then(function () { rendre(); window.scrollTo(0, 0); });
   }
   function importerTexte() {
@@ -284,10 +302,10 @@
     var ph = etat.imp.photos;
     return '<div class="a-photos">' + ph.map(function (p, i) {
       return '<div class="a-photo' + (i === 0 ? " est-principale" : "") + '"><img src="' + p.apercu + '" alt="Photo ' + (i + 1) + '">' + (i === 0 ? '<span class="a-photo-etiquette">' + ico("etoile") + " Principale</span>" : "") +
-        '<div class="a-photo-actions">' + (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="gauche" title="Déplacer vers la gauche">' + ico("gauche") + "</button>" : "") +
-        (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="principale" title="Définir comme photo principale">' + ico("etoile") + "</button>" : "") +
+        (etat.imp.id ? (p.envoye ? '<span class="a-photo-etiquette">' + ico("coche") + " Envoyée</span>" : "") : '<div class="a-photo-actions">') + (etat.imp.id ? "" : (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="gauche" title="Déplacer vers la gauche">' + ico("gauche") + "</button>" : "")) +
+        (etat.imp.id ? "" : (i > 0 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="principale" title="Définir comme photo principale">' + ico("etoile") + "</button>" : "") +
         (i < ph.length - 1 ? '<button type="button" data-action="imp-photo" data-i="' + i + '" data-m="droite" title="Déplacer vers la droite">' + ico("droite") + "</button>" : "") +
-        '<button type="button" class="est-danger" data-action="imp-photo" data-i="' + i + '" data-m="retirer" title="Retirer cette photo">' + ico("corbeille") + "</button></div></div>";
+        '<button type="button" class="est-danger" data-action="imp-photo" data-i="' + i + '" data-m="retirer" title="Retirer cette photo">' + ico("corbeille") + "</button></div>") + "</div>";
     }).join("") + "</div>";
   }
   function majApercuImp() {
@@ -311,7 +329,7 @@
     }
     if (I.etape === "fini") {
       var r = I.resultat;
-      return '<section class="a-bloc a-imp-fin"><h2>' + ico("coche") + (r.soumis ? " Annonce envoyée à l’agence" : " Brouillon enregistré") + "</h2><p><strong>" + e(r.titre) + "</strong> · " + r.photos + " photo" + (r.photos > 1 ? "s" : "") + ".</p>" +
+      return '<section class="a-bloc a-imp-fin"><h2>' + ico("coche") + (r.soumis ? " Annonce envoyée à l’agence" : " Brouillon enregistré") + "</h2><p><strong>" + e(r.titre) + "</strong> · " + r.photos + " photo" + (r.photos > 1 ? "s" : "") + (r.manquantes ? " (" + r.manquantes + " non envoyée" + (r.manquantes > 1 ? "s" : "") + " : ajoutez-les depuis la fiche du bien)" : "") + ".</p>" +
         '<p class="a-aide">' + (r.soumis ? "L’agence va la relire avant de la mettre en ligne. Vous pouvez suivre son statut dans « Mes biens »." : "Retrouvez-la dans « Mes biens » pour la compléter, puis soumettez-la à l’agence.") + "</p>" +
         '<div class="a-form-pied"><button type="button" class="btn btn-ligne" data-action="aller" data-vue="bien" data-id="' + e(r.id) + '">Ouvrir ce bien</button><button type="button" class="btn btn-vert" data-action="imp-suite">' + (I.file && I.file.i < I.file.fichiers.length ? "Annonce suivante" : "Importer une autre annonce") + "</button></div></section>";
     }
@@ -332,11 +350,25 @@
         '<div class="plein" style="margin-top:14px"><label for="f-description">Description</label><textarea id="f-description" name="description" rows="8" data-action-change="imp-maj">' + e(b.description || "") + "</textarea></div>" +
         '<div class="a-grille" style="margin-top:14px">' + ch("juridique", "Situation juridique (le cas échéant)", b.juridique, "", "plein") + ch("adresse_privee", "Adresse exacte / propriétaire (privé, jamais affiché au public)", b.adresse_privee, "", "plein") +
         '<div class="plein"><label for="f-notes_privees">Notes pour l’agence (privées)</label><textarea id="f-notes_privees" name="notes_privees" rows="3" data-action-change="imp-maj">' + e(b.notes_privees || "") + "</textarea></div></div></section>" +
-      '<div class="a-barre"><div class="a-barre-statut"><span class="a-statut a-statut-brouillon">Brouillon</span><small id="a-imp-progres" role="status" hidden></small></div><div class="a-barre-actions">' +
-        '<button type="button" class="btn btn-ligne" data-action="imp-annuler">' + (F && F.fichiers.length > 1 ? "Passer cette annonce" : "Annuler l’import") + "</button>" +
-        '<button type="button" class="btn btn-ligne" data-action="imp-creer" data-soumettre="0">Enregistrer en brouillon</button>' +
-        '<button type="button" class="btn btn-vert" data-action="imp-creer" data-soumettre="1">Envoyer à l’agence</button></div></div></form>';
+      repriseImpHtml() +
+      '<div class="a-barre"><div class="a-barre-statut"><span class="a-statut a-statut-' + (I.finalise ? "en_attente" : "brouillon") + '">' + (I.finalise ? "En attente de validation" : "Brouillon") + '</span><small id="a-imp-progres" role="status" hidden></small></div><div class="a-barre-actions">' +
+        '<button type="button" class="btn btn-ligne" data-action="imp-annuler">' + (I.id ? "Abandonner cette annonce" : F && F.fichiers.length > 1 ? "Passer cette annonce" : "Annuler l’import") + "</button>" +
+        (I.id ? '<button type="button" class="btn btn-ligne" data-action="imp-terminer">Terminer sans ces photos</button><button type="button" class="btn btn-vert" data-action="imp-renvoyer">Renvoyer les photos manquantes (' + photosManquantes() + ")</button>"
+          : '<button type="button" class="btn btn-ligne" data-action="imp-creer" data-soumettre="0">Enregistrer en brouillon</button><button type="button" class="btn btn-vert" data-action="imp-creer" data-soumettre="1">Envoyer à l’agence</button>') + "</div></div></form>";
   }
+  /* V11.2.1 : l'annonce reste en BROUILLON tant que toutes les photos ne sont pas arrivées. Chaque photo a 3 essais ;
+     si l'une échoue, rien n'est perdu ni transmis à l'agence : « Renvoyer les photos manquantes » reprend là où l'envoi s'est arrêté.
+     L'alerte e-mail à l'agence ne part qu'à la fin (ou après 3 photos en « envoi rapide »). */
+  var NB_RAPIDE = 3;
+  function photosManquantes() { return etat.imp ? etat.imp.photos.filter(function (p) { return !p.envoye; }).length : 0; }
+  function repriseImpHtml() {
+    var I = etat.imp, m = photosManquantes();
+    if (!I.id) return I.photos.length > NB_RAPIDE ? '<section class="a-bloc"><label class="a-case"><input type="checkbox" name="envoi_rapide"><span><strong>Envoi rapide</strong> : l’agence reçoit l’annonce après les ' + NB_RAPIDE + ' premières photos, les ' + (I.photos.length - NB_RAPIDE) + ' autres suivent sur la même annonce.</span></label></section>' : "";
+    if (!m) return "";
+    return '<section class="a-bloc a-imp-reprise"><h2>' + ico("info") + " Envoi des photos interrompu</h2><p>" + (I.erreur ? e(I.erreur) + " " : "") + "L’annonce « " + e(I.bien.titre) + " » est créée avec " + (I.photos.length - m) + " photo" + (I.photos.length - m > 1 ? "s" : "") + " sur " + I.photos.length + ". " +
+      (I.finalise ? "Elle est déjà transmise à l’agence." : "Elle reste en brouillon : rien n’est transmis à l’agence et aucune alerte n’est envoyée tant que l’envoi n’est pas terminé.") + "</p></section>";
+  }
+  function boutonsImp(actif) { document.querySelectorAll('[data-action="imp-creer"],[data-action="imp-annuler"],[data-action="imp-renvoyer"],[data-action="imp-terminer"]').forEach(function (x) { x.disabled = !actif; }); }
   function creerImp(soumettre) {
     var I = etat.imp; if (!I || I.occupe) return Promise.resolve();
     lireFormImp();
@@ -344,40 +376,64 @@
     if (bloq) { A.message(bloq.texte); return Promise.resolve(); }
     if (soumettre) { var pb = al.filter(function (a) { return a.niveau === "publier"; })[0]; if (pb) { A.message(pb.texte); return Promise.resolve(); } }
     if (I.doublon && !I.confirmeDoublon) { A.message("Doublon possible : cochez « Créer quand même cette annonce » pour continuer."); return Promise.resolve(); }
-    I.occupe = true;
-    var b = Object.assign({}, I.bien, { statut: soumettre ? "en_attente" : "brouillon" }), id = null, fait = 0;
-    ["a_la_une", "coup_de_coeur", "exclusivite", "juridique_verifie"].forEach(function (k) { delete b[k]; });
-    document.querySelectorAll('[data-action="imp-creer"],[data-action="imp-annuler"]').forEach(function (x) { x.disabled = true; });
-    infoImp("Création de l’annonce…");
+    var rap = document.querySelector('[name="envoi_rapide"]');
+    I.soumettre = !!soumettre; I.rapide = !!(rap && rap.checked && soumettre && I.photos.length > NB_RAPIDE);
+    return envoiImp();
+  }
+  function envoiImp() {
+    var I = etat.imp; if (!I || I.occupe) return Promise.resolve();
+    I.occupe = true; I.erreur = "";
+    var total = I.photos.length, garde = function (ev) { ev.preventDefault(); ev.returnValue = ""; };
+    window.addEventListener("beforeunload", garde);
+    boutonsImp(false);
     var pause = function (ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); };
     var envoyer = function (ph, tentative) {
-      return A.apiAgent("photoAjouterAgent", { bien_id: id, photo: { nom: ph.nom, mime: ph.mime, donnees: ph.donnees } }).catch(function (err) {
-        if (err.code === "AUTH" || tentative >= 1) throw err;
-        return pause(1500).then(function () { return envoyer(ph, tentative + 1); });
+      return A.apiAgent("photoAjouterAgent", { bien_id: I.id, cle: I.cle + "-" + ph.uid, photo: { nom: ph.nom, mime: ph.mime, donnees: ph.donnees } }).catch(function (err) {
+        if (err.code === "AUTH" || err.code === "INTERDIT" || err.code === "LIMITE" || tentative >= 2) throw err;
+        return pause(tentative ? 4000 : 1500).then(function () { return envoyer(ph, tentative + 1); });
       });
     };
-    return A.apiAgent("bienImporterAgent", { bien: b }).then(function (r) {
-      id = r.bien.id;
+    var finaliser = function (prevues) {
+      return A.apiAgent("bienFinaliserAgent", { id: I.id, soumettre: true, photos_prevues: prevues || 0 }).then(function () { I.finalise = true; });
+    };
+    var depart = Promise.resolve();
+    if (!I.id) {
+      infoImp("Création de l’annonce…");
+      var b = Object.assign({}, I.bien, { statut: "brouillon" });
+      ["a_la_une", "coup_de_coeur", "exclusivite", "juridique_verifie"].forEach(function (k) { delete b[k]; });
+      depart = A.apiAgent("bienImporterAgent", { bien: b }).then(function (r) { I.id = r.bien.id; });
+    }
+    return depart.then(function () {
       return I.photos.reduce(function (p, ph) {
-        return p.then(function () { infoImp("Envoi de la photo " + (fait + 1) + " sur " + I.photos.length + "…"); return envoyer(ph, 0).then(function () { fait++; }); });
+        if (ph.envoye) return p;
+        return p.then(function () {
+          var faites = I.photos.filter(function (x) { return x.envoye; }).length;
+          infoImp("Envoi de la photo " + (faites + 1) + " sur " + total + "…");
+          return envoyer(ph, 0).then(function () {
+            ph.envoye = true;
+            if (I.rapide && I.soumettre && !I.finalise && faites + 1 === NB_RAPIDE) { infoImp("Transmission à l’agence…"); return finaliser(total); }
+          });
+        });
       }, Promise.resolve());
     }).then(function () {
-      return charger().then(function () {
-        I.occupe = false; I.resultat = { id: id, titre: b.titre, soumis: !!soumettre, photos: fait };
-        if (I.file) { I.file.ok++; I.file.i++; }
-        I.etape = "fini"; rendre(); window.scrollTo(0, 0);
-        A.message(soumettre ? "Annonce envoyée à l’agence." : "Brouillon enregistré.");
-      });
-    }).catch(function (err) {
-      I.occupe = false;
-      var annule = id ? A.apiAgent("bienSupprimerAgent", { id: id }).then(function () { return true; }, function () { return false; }) : Promise.resolve(true);
-      return annule.then(function (ok) {
-        infoImp("");
-        document.querySelectorAll('[data-action="imp-creer"],[data-action="imp-annuler"]').forEach(function (x) { x.disabled = false; });
-        if (err.code === "AUTH") { A.jetonAgent.ecrire(""); D = null; rendre(); A.message(err.message); return; }
-        A.message("Import interrompu : " + err.message + (ok ? " Rien n’a été envoyé, vous pouvez réessayer." : " Attention : un brouillon incomplet (" + id + ") a pu rester dans la liste, supprimez-le."));
-        return charger().then(rendre, rendre);
-      });
+      if (I.soumettre && !I.finalise) { infoImp("Transmission à l’agence…"); return finaliser(0); }
+    }).then(function () { return terminerImp(); }, function (err) {
+      window.removeEventListener("beforeunload", garde);
+      I.occupe = false; infoImp("");
+      if (err.code === "AUTH") { A.jetonAgent.ecrire(""); D = null; rendre(); A.message(err.message); return; }
+      if (!I.id) { boutonsImp(true); A.message("Import interrompu : " + err.message + " Rien n’a été créé, vous pouvez réessayer."); return; }
+      var restantes = photosManquantes(), rang = total - restantes + 1;
+      I.erreur = "La photo " + rang + " sur " + total + " n’a pas pu être envoyée (" + err.message + ").";
+      return charger().then(rendre, rendre).then(function () { A.message(I.erreur + " Cliquez sur « Renvoyer les photos manquantes »."); });
+    }).then(function (x) { window.removeEventListener("beforeunload", garde); return x; });
+  }
+  function terminerImp() {
+    var I = etat.imp, envoyees = I.photos.filter(function (p) { return p.envoye; }).length;
+    return charger().then(function () {
+      I.occupe = false; I.resultat = { id: I.id, titre: I.bien.titre, soumis: I.finalise, photos: envoyees, manquantes: I.photos.length - envoyees };
+      if (I.file) { I.file.ok++; I.file.i++; }
+      I.etape = "fini"; rendre(); window.scrollTo(0, 0);
+      A.message(I.finalise ? "Annonce envoyée à l’agence." : "Brouillon enregistré.");
     });
   }
 
@@ -404,14 +460,36 @@
     aller: function (b) { aller(b.dataset.vue, b.dataset.id); },
     "imp-ouvrir": function () { etat.imp = null; aller("import"); },
     "imp-suite": function () { var F = etat.imp && etat.imp.file; if (F && F.i < F.fichiers.length) { etat.imp = { file: F }; rendre(); annonceSuivante(); } else { etat.imp = null; rendre(); } },
+    "imp-renvoyer": function () { envoiImp(); },
+    "imp-terminer": function () {
+      var I = etat.imp; if (!I || I.occupe) return;
+      confirmer("Terminer sans ces photos ?", photosManquantes() + " photo(s) ne seront pas envoyées. Vous pourrez les ajouter depuis la fiche du bien.", "Terminer").then(function (ok) {
+        if (!ok) return;
+        I.occupe = true; boutonsImp(false);
+        (I.soumettre && !I.finalise ? A.apiAgent("bienFinaliserAgent", { id: I.id, soumettre: true, photos_prevues: 0 }).then(function () { I.finalise = true; }) : Promise.resolve())
+          .then(terminerImp, function (err) { I.occupe = false; boutonsImp(true); A.message(err.message); });
+      });
+    },
     "imp-annuler": function () {
       var F = etat.imp && etat.imp.file;
+      if (etat.imp && etat.imp.id) {
+        var I0 = etat.imp;
+        return confirmer("Abandonner cette annonce ?", "L’annonce déjà créée en brouillon (" + I0.id + ") et ses photos seront supprimées.", "Abandonner et supprimer").then(function (ok) {
+          if (!ok) return;
+          A.apiAgent("bienSupprimerAgent", { id: I0.id }).then(function () { return true; }, function () { return false; }).then(function (sup) {
+            if (!sup) { A.message("Suppression impossible : retirez le brouillon depuis « Mes biens »."); }
+            if (F && F.fichiers.length > 1) { F.i++; etat.imp = { file: F }; charger().then(annonceSuivante, annonceSuivante); return; }
+            etat.imp = null; charger().then(rendre, rendre);
+          });
+        });
+      }
       if (F && F.fichiers.length > 1) { F.i++; etat.imp = { file: F }; annonceSuivante(); return; }
       confirmer("Annuler l’import ?", "L’annonce préparée ne sera pas enregistrée.", "Annuler l’import").then(function (ok) { if (ok) { etat.imp = null; rendre(); } });
     },
     "imp-analyser": function () { importerTexte(); },
     "imp-copier-consigne": function () { copierTexte(IA().consigne).then(function (ok) { A.message(ok ? "Consigne copiée : collez-la dans votre IA." : "Copie impossible sur cet appareil."); }); },
     "imp-photo": function (b) {
+      if (etat.imp.id) { A.message("Les photos sont déjà en cours d’envoi : elles ne peuvent plus être modifiées ici."); return; }
       var ph = etat.imp.photos, i = parseInt(b.dataset.i, 10), m = b.dataset.m;
       if (m === "retirer") ph.splice(i, 1);
       else if (m === "gauche" && i > 0) ph.splice(i - 1, 0, ph.splice(i, 1)[0]);
@@ -462,6 +540,8 @@
         enregistrerBien(ev.submitter && ev.submitter.dataset.soumettre === "1").catch(function () {});
       }
     });
+    /* V11.2.1 : liste « Mes biens » actualisée toutes les 60 s (statuts, photos), sans gêner une saisie ni un envoi en cours */
+    A.actualisationAuto({ pret: function () { return D && etat.vue === "biens" && !etat.imp && !etat.occupe; }, donnees: function () { return D; }, lire: function () { return A.apiAgent("donneesAgent"); }, ecrire: function (r) { D = r; }, rendre: rendre });
     /* Session existante : on tente de reprendre directement */
     if (A.jetonAgent.lire()) { racine.innerHTML = '<p class="a-chargement">Chargement…</p>'; charger().then(rendre, function () { A.jetonAgent.ecrire(""); D = null; window.location.replace("espace-pro.html?role=agent"); }); }
     else window.location.replace("espace-pro.html?role=agent");

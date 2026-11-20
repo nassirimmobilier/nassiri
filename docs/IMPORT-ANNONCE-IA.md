@@ -44,7 +44,7 @@ Modèle : `docs/exemples-import/annonce-modele.json`. Exemple complet (Dar Louka
 ```
 Tu prépares une annonce pour mon site immobilier Nassiri Real Estate (Maroc). Je te donne les informations du bien et des photos.
 RÈGLES : n'invente RIEN. Une information absente reste vide ("" ou null) et tu la listes dans "a_verifier". Rédige en français, ton professionnel et sobre.
-LIVRABLE : un fichier ZIP contenant annonce.json et un dossier photos/ (JPEG, 1800 px max, nommés 01.jpg, 02.jpg…). Si tu ne peux pas créer de ZIP, donne-moi uniquement le JSON ci-dessous, dans un bloc de code.
+LIVRABLE : un fichier ZIP contenant annonce.json et un dossier photos/ (JPEG, 1600 px max, nommés 01.jpg, 02.jpg…). Si tu ne peux pas créer de ZIP, donne-moi uniquement le JSON ci-dessous, dans un bloc de code.
 FORMAT annonce.json :
 {
   "format": "nassiri-annonce", "version": 1,

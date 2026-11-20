@@ -116,7 +116,7 @@
 
   /* Redimensionne une photo dans le navigateur avant l'envoi (plus rapide, moins lourd) */
   A.preparerPhoto = function (fichier, cote) {
-    cote = cote || (A.demo ? 1100 : 1800);
+    cote = cote || (A.demo ? 1100 : 1600);      /* V11.2.1 : 1600 px (envoi plus rapide) */
     return new Promise(function (ok, ko) {
       if (!/^image\//.test(fichier.type)) return ko(new Error("« " + fichier.name + " » n’est pas une image."));
       var url = URL.createObjectURL(fichier), img = new Image();
@@ -132,4 +132,32 @@
       img.src = url;
     });
   };
+  /* V11.2.1 : actualisation automatique des Espaces Admin, Agent et Partenaire (toutes les 60 s).
+     Elle ne s'exécute que si la page est visible et qu'on n'est pas en train d'écrire ou d'éditer (vue de liste,
+     aucune fenêtre ouverte, aucun champ de saisie en cours), et ne redessine la page que si les données ont changé. */
+  A.actualisationAuto = function (o) {
+    var occupe = false, dernier = Date.now(), delai = o.delai || 60000;
+    function libre() {
+      if (document.hidden) return false;
+      var x = document.activeElement;
+      if (x && /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)) return false;
+      if (document.querySelector(".a-modale")) return false;
+      var saisie = document.querySelectorAll("textarea, input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=submit]):not([type=hidden]):not([data-recherche])");
+      for (var k = 0; k < saisie.length; k++) if (saisie[k].value) return false;
+      return !!o.pret();
+    }
+    function tic(force) {
+      if (occupe || !o.donnees() || !libre()) return;
+      occupe = true;
+      o.lire().then(function (r) {
+        occupe = false; dernier = Date.now();
+        if (!libre() || JSON.stringify(r) === JSON.stringify(o.donnees())) return;
+        o.ecrire(r); o.rendre();
+      }, function () { occupe = false; });
+    }
+    setInterval(tic, delai);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden && Date.now() - dernier > delai / 2) setTimeout(tic, 600); });
+    A._actualiser = tic;      /* utilisé par les tests */
+  };
+
 })();

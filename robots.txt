@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /agent.html
+Disallow: /espace-pro.html
+Disallow: /partenaire.html
+# Après publication, retirez le # ci-dessous et remplacez ADRESSE-DU-SITE (voir PUBLICATION.md)
+# Sitemap: ADRESSE-DU-SITE/sitemap.xml
